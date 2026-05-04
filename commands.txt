@@ -1,0 +1,116 @@
+==============================================================================
+Elite IVR — EC2 (Amazon Linux 2023) day-to-day commands
+==============================================================================
+
+SSH into the server:
+    ssh -i ~/Downloads/demo_rsa.pem ec2-user@ec2-3-82-48-189.compute-1.amazonaws.com
+
+
+------------------------------------------------------------------------------
+1. RESTART THE PROJECT
+------------------------------------------------------------------------------
+
+# Normal restart
+sudo systemctl restart elite-ivr
+sudo systemctl status elite-ivr --no-pager
+
+# If it has been crash-looping and systemd marked it "failed", clear first:
+sudo systemctl reset-failed elite-ivr
+sudo systemctl restart elite-ivr
+
+
+------------------------------------------------------------------------------
+2. SEE LOGS
+------------------------------------------------------------------------------
+
+# Tail live (most useful — Ctrl+C to exit)
+sudo journalctl -u elite-ivr -f
+
+# Last N lines (no follow)
+sudo journalctl -u elite-ivr -n 200 --no-pager
+
+# Errors only
+sudo journalctl -u elite-ivr -p err --no-pager
+
+# Since a time
+sudo journalctl -u elite-ivr --since "10 min ago" --no-pager
+sudo journalctl -u elite-ivr --since today --no-pager
+
+# Quick service health
+sudo systemctl status elite-ivr --no-pager
+
+
+------------------------------------------------------------------------------
+3. STOP THE PROJECT
+------------------------------------------------------------------------------
+
+# Stop just this run
+sudo systemctl stop elite-ivr
+
+# Stop and prevent auto-start on boot
+sudo systemctl stop elite-ivr
+sudo systemctl disable elite-ivr
+
+# Bring it back later
+sudo systemctl enable --now elite-ivr
+
+
+------------------------------------------------------------------------------
+SUPPORTING SERVICES (Caddy + Ollama)
+------------------------------------------------------------------------------
+
+# Caddy (TLS reverse proxy in front of the app)
+sudo systemctl restart caddy
+sudo journalctl -u caddy -f
+sudo systemctl stop caddy
+
+# Ollama (local LLM — qwen2.5:1.5b)
+sudo systemctl restart ollama
+sudo journalctl -u ollama -f
+sudo systemctl stop ollama
+
+# Status of all three at once
+systemctl status elite-ivr ollama caddy --no-pager
+
+NOTE: elite-ivr requires ollama (Requires=ollama.service in the unit).
+      If Ollama is stopped, elite-ivr will fail to start. Start Ollama first.
+
+
+------------------------------------------------------------------------------
+QUICK HEALTH CHECKS
+------------------------------------------------------------------------------
+
+# From the server itself
+curl http://127.0.0.1:8000/health                   # → {"status":"ok"}
+sudo ss -ltnp | grep 8000                           # uvicorn listening?
+
+# From your Mac (over the public domain via Caddy)
+curl -i https://elite-ivr-poc.duckdns.org/health
+curl -s -X POST https://elite-ivr-poc.duckdns.org/voice
+
+
+------------------------------------------------------------------------------
+DEPLOY A CODE UPDATE
+------------------------------------------------------------------------------
+
+cd /opt/elite-ivr
+git pull
+source .venv/bin/activate
+pip install -r requirements.txt
+sudo systemctl restart elite-ivr
+sudo journalctl -u elite-ivr -f
+
+
+------------------------------------------------------------------------------
+KEY PATHS ON THE SERVER
+------------------------------------------------------------------------------
+
+Project dir          /opt/elite-ivr
+Virtualenv           /opt/elite-ivr/.venv
+Env file             /opt/elite-ivr/.env
+Audio clips          /opt/elite-ivr/audio_files
+Intent model         /opt/elite-ivr/intent_model.bin
+Dummy data           /opt/elite-ivr/dummy_data.json
+Systemd unit         /etc/systemd/system/elite-ivr.service
+Caddy config         /etc/caddy/Caddyfile
+Caddy access log     /var/log/caddy/elite-ivr.log
