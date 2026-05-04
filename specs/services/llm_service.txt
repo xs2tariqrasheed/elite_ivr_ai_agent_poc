@@ -1,0 +1,27 @@
+llm service using locally running ollama, qwen2.5:1.5b model.
+
+It should expose following two functions:
+
+1- extract_account_number(text: str) -> Optional[str]:
+    """Use the local LLM to extract a 4-digit account number from ``text``.
+
+    Returns the 4-digit string on success, or ``None`` if no number could be
+    extracted (LLM said NOT_FOUND, returned junk, or threw).
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    client = get_ollama_client()
+
+2- extract_phone_number(text: str) -> Optional[str]:
+    """Use the local LLM to extract a 10-digit phone number from ``text``.
+
+    Returns the 10-digit string on success, or ``None`` if no number could be
+    extracted (LLM said NOT_FOUND, returned junk, or threw).
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    client = get_ollama_client()

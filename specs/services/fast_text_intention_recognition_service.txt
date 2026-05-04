@@ -1,0 +1,83 @@
+create fast text intention recognition service.
+
+It should expect a text input and return the intention label and confidence score.
+
+Intention can be "new_reservation" or "other".
+
+use "fasttext_reservation_training.txt" as training data (include common STT duplicates, e.g. repeated menu phrases with commas).
+
+use "intent_model.bin" as locally running model file.
+
+
+e.g.
+
+# fast_text_script.py
+# ---------------------------------------------
+# Train and use a fastText model for intent classification
+# Intents: new_reservation, other
+# ---------------------------------------------
+
+import fasttext
+import os
+import time
+
+
+TRAIN_FILE = "fasttext_reservation_training.txt"
+MODEL_FILE = "intent_model.bin"
+
+
+def train_model():
+    """Train fastText supervised model"""
+
+    model = fasttext.train_supervised(
+        input=TRAIN_FILE, epoch=25, lr=1.0, wordNgrams=2, verbose=2, minCount=1
+    )
+
+    model.save_model(MODEL_FILE)
+    print(f"Model saved to {MODEL_FILE}")
+
+    return model
+
+
+def load_model():
+    """Load trained model"""
+    if not os.path.exists(MODEL_FILE):
+        raise FileNotFoundError("Model not found. Train first.")
+    return fasttext.load_model(MODEL_FILE)
+
+
+def predict_intent(model, text):
+    """Predict intent from text"""
+
+    labels, probabilities = model.predict(text)
+
+    intent = labels[0].replace("__label__", "")
+    confidence = probabilities[0]
+
+    return intent, confidence
+
+
+if __name__ == "__main__":
+    # Step 1: Create dataset
+    create_training_data()
+
+    # Step 2: Train model
+    model = train_model()
+
+    # Step 3: Test predictions
+    test_sentences = [
+        "I want to make reservation",
+        "Can you please book a ride for today",
+        "I want to cancel my reservation",
+        "I want to reschedule my reservation",
+        "Can I get help on my last ride",
+    ]
+
+    print("\n--- Predictions ---")
+    for sentence in test_sentences:
+        start_time = time.time()
+        intent, confidence = predict_intent(model, sentence)
+        end_time = time.time()
+        print(f"Time taken: {end_time - start_time:.9f} seconds")
+        print(f"Text: {sentence}")
+        print(f"Intent: {intent}, Confidence: {confidence:.4f}\n")

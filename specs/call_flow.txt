@@ -1,0 +1,58 @@
+Following is the flow of the call to make a new reservation.
+
+General guidelines:
+- All agent voices are pre recorded under "audio_files" directory.
+
+Phase-1: (Intention recognition)
+The agent will ask the caller if they want to make a new reservation or want something else.
+Agent voice is "rec_greet_unknown.mp3"
+Caller's intention will be one of two options: "new_reservation" or "other".
+If intention is "new_reservation", the agent will proceed to the next phase-2.
+If intention is "other", agent says "rec_other_intent.mp3" and then hangs up the call.
+
+
+Phase-2: (Account Number)
+The agent will ask to say 4 digit account number. Agent voice is "rec_account_number.mp3"
+System extract account number from the caller's answer.
+If system extracts the number successfully, and account exists in the dummy_data, system moves to Phase-3.
+If account doesn't exist, the agent will hang up the call after saying "rec_account_not_found".
+If system couldn't extract the "account number" via stt service, the agent will ask with voice recoding "rec_account_number_retry.mp3" the caller to repeat their account number again.
+If system couldn't extract the "account number" via stt service even after the retry then agent say "rec_account_not_found.mp3" and hang up the call.
+
+
+Phase-3: (Account Name)
+The agent will ask for the account name. Agent voice is "rec_account_name.mp3".
+System will save the account name whatever it receives from the caller via stt service, and move to phase-4
+
+
+Phase-4: (Passenger First Name)
+The agent will ask for the passenger's first name. Agent voice is "rec_first_name.mp3".
+System will save the passenger's first name whatever it receives from the caller via stt service, and move to phase-5
+
+Phase-5: (Passenger Last Name)
+The agent will ask for the passenger's last name. Agent voice is "rec_last_name.mp3".
+System will save the passenger's last name whatever it receives from the caller via stt service, and move to phase-6
+
+Phase-6: (Pickup Date and Time)
+The agent will ask for the pickup date.
+Agent voice is "rec_pickup_date_time.mp3".
+System will save the pickup date and time whatever it receives from the caller via stt service, and move to phase-7
+
+Phase-7: (Pickup Address)
+The agent will ask for the pickup address. Agent voice is "rec_pickup_address.mp3".
+System will save the pickup address whatever it receives from the caller via stt service, and move to phase-8
+
+Phase-8: (Dropoff Address)
+The agent will ask for the dropoff address. Agent voice is "rec_dropoff_address.mp3".
+System will save the dropoff address whatever it receives from the caller via stt service, and move to phase-9
+
+Phase-9: (Callback Phone)
+The agent will ask for the callback phone number. Agent voice is "rec_callback_number.mp3".
+System will save the callback phone number whatever it receives from the caller via stt service, and move to phase-10
+
+Phase-10: (Passenger Email)
+The agent will ask for the passenger's email. Agent voice is "rec_email.mp3".
+System will save the passenger's email whatever it receives from the caller via stt service, and move to phase-11
+
+Phase-11: (end)
+The agent will read the summary of the reservation and hang up the call. Agent voice is "rec_good_bye.mp3".

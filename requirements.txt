@@ -1,0 +1,30 @@
+# Web framework
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+python-dotenv==1.0.1
+
+# Twilio
+twilio==9.0.5
+
+# STT
+faster-whisper==1.0.2
+
+# Intent recognition
+# Use fasttext-wheel (prebuilt binaries) — same `import fasttext` API,
+# avoids the pybind11 / source build that fails on macOS + Python 3.9.
+fasttext-wheel==0.9.2
+
+# LLM client (Ollama)
+ollama==0.2.1
+
+# Audio
+numpy==1.26.4
+pydub==0.25.1
+webrtcvad==2.0.10
+
+# Misc
+requests==2.32.3
+
+# webrtcvad imports `pkg_resources`. setuptools 81+ stopped shipping
+# pkg_resources by default, so pin to the last version that still has it.
+setuptools<81

@@ -1,0 +1,4 @@
+- loads all audio files in memory (Maybe in the dictionary) from audio_files directory, for faster future responses.
+- expose all audio names and constants for the audio files.
+- expose helper function to play audio file in twilio as agent file. this function will receive constant as input of the file name.
+- 

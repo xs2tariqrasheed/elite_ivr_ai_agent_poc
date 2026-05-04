@@ -1,0 +1,38 @@
+[
+  {
+    "account_number": "5678",
+    "account_name": "Beta Industries",
+    "primary_contact": "Jane Doe",
+    "email": "ops@beta-industries.com",
+    "phone": "+1-555-0202",
+    "default_pickup_address": "1 World Trade Center, New York, NY 10007",
+    "vip": false
+  },
+  {
+    "account_number": "9012",
+    "account_name": "Gamma Holdings",
+    "primary_contact": "Robert Chen",
+    "email": "travel@gammaholdings.com",
+    "phone": "+1-555-0303",
+    "default_pickup_address": "200 Park Ave, New York, NY 10166",
+    "vip": true
+  },
+  {
+    "account_number": "3456",
+    "account_name": "Delta Labs",
+    "primary_contact": "Aisha Patel",
+    "email": "concierge@deltalabs.io",
+    "phone": "+1-555-0404",
+    "default_pickup_address": "57 Morningside Dr, New York, NY 10025",
+    "vip": false
+  },
+  {
+    "account_number": "7890",
+    "account_name": "Epsilon Partners",
+    "primary_contact": "Maria Santos",
+    "email": "admin@epsilonpartners.com",
+    "phone": "+1-555-0505",
+    "default_pickup_address": "9 W 57th St, New York, NY 10019",
+    "vip": true
+  }
+]

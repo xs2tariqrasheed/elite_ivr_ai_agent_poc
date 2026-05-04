@@ -1,0 +1,18 @@
+1- use mix re and llm for numbers extraction.
+2- noise detection and handling.
+3- silence handling with agent.
+4- interruptible call flow.
+5- caller stuck state handling.
+6- responding "alright", "hold a second" etc. between phase processing.
+7- Caller stops speaking detection logic. ATM 1000 ms is hardcoded.
+8- Use more data for fasttext training, for intent classification.
+9- retry on phone number asking.
+10- add more words to number_words. NUMBER_WORDS dictionary in number_extractor.py and phone_extractor.py
+11- glitch in twilio, sending same audio chunk multiple times.
+
+
+
+
+needs attention
+max_seconds in _listen
+grace_silence_ms in _listen

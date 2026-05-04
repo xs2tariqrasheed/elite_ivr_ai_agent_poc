@@ -1,0 +1,65 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments (.venv in repo root and every subdirectory)
+**/.venv/
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables / local secrets
+.env
+.env.*
+
+# Unit test / coverage reports
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# ML models / weights / serialized binaries
+*.bin
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.h5
+*.hdf5
+*.pb
+*.tflite
+*.mlmodel
+*.gguf
+*.joblib
+*.npz
+
+# sub env (non-.venv names)
+coqui_tts/tts-env/
