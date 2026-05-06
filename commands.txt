@@ -114,3 +114,28 @@ Dummy data           /opt/elite-ivr/dummy_data.json
 Systemd unit         /etc/systemd/system/elite-ivr.service
 Caddy config         /etc/caddy/Caddyfile
 Caddy access log     /var/log/caddy/elite-ivr.log
+
+
+uvicorn main:app --reload --port 8000
+
+source .venv/bin/activate
+
+ngrok http 8000
+
+
+
+order_taking_app/
+# uvicorn main:app --reload --port 8000
+
+
+
+python3 -m venv .venv
+
+
+
+prod app
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+SENSITIVE CONFIG
+
+python -m app.services.intent_service retrain

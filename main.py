@@ -34,7 +34,11 @@ from services import phase_manager
 from services import stt_service as stt
 from services.number_extractor import extract_number
 from services.phone_extractor import extract_phone
-from utils.audio_utils import detect_speech_boundaries, mulaw_to_float32_16k
+from utils.audio_utils import (
+    detect_speech_boundaries,
+    mulaw_to_float32_16k,
+    reset_tail_last_five_stability_history,
+)
 from utils.misc import is_valid_account_number, is_valid_phone
 
 
@@ -163,6 +167,10 @@ async def _listen(
     max_seconds = 200000.0
 
     state.reset_inbound_buffer()
+    # The Twilio-glitch dedup window in audio_utils is module-global; clear
+    # it at the start of every listen so state from the previous turn (or
+    # from a previous call entirely) can't leak into this VAD evaluation.
+    reset_tail_last_five_stability_history()
     state.capturing_audio = True
     start = time.time()
     speech_started = False

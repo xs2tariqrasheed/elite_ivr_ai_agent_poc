@@ -72,17 +72,17 @@ _VAD_FRAME_BYTES = int(_VAD_SAMPLE_RATE * (_VAD_FRAME_MS / 1000.0)) * 2  # 320
 #                     low enough to catch even quiet callers.
 #
 #   _SPEECH_TAIL_RMS  ≈ -29 dBFS. "Clearly speech-level energy". Used to
-#                     decide ``speech_ended``: if the LOUDEST frame in the
-#                     silence window is below this, there is no speech in
-#                     that window.
+#                     decide ``speech_ended``: if the 90th-percentile RMS in
+#                     the silence window is below this, there is no sustained
+#                     speech in that window.
 #
-# The tail check uses the PEAK (max) tail RMS rather than a count of
-# above-threshold frames. This makes the silence decision robust to calls
-# with a line-noise floor that sits just above _VOICED_RMS — such noise
-# never peaks anywhere near speech-level energy, so the tail is correctly
-# classified as silent and listening ends. The previous count-based check
-# failed exactly in that case: every frame counted as "voiced", the tail
-# stayed pinned at 900/900 ms, and _listen looped forever.
+# The tail check uses the 90th percentile rather than the peak (max). Using
+# the peak made the decision brittle: a single 40 ms transient (breath, lip
+# smack, chair creak, line click, brief background noise) anywhere in the
+# 1.2 s window pinned speech_ended at False, and listening only ended via
+# the post-speech-timeout safety net. The 90th percentile tolerates up to
+# ~3 such spikes per 30-frame window while still flipping promptly once the
+# caller actually stops talking.
 _VOICED_RMS = 500.0
 _SPEECH_TAIL_RMS = 1200.0
 
@@ -108,7 +108,7 @@ def tail_last_five_stable_last_three_updates(tail_rms: List[float]) -> bool:
         return False
     key = tuple(tail_rms[-5:])
     _TAIL_LAST_FIVE_HISTORY.append(key)
-    if len(_TAIL_LAST_FIVE_HISTORY) < 5:
+    if len(_TAIL_LAST_FIVE_HISTORY) < _TAIL_LAST_FIVE_HISTORY.maxlen:
         return False
     first = _TAIL_LAST_FIVE_HISTORY[0]
     return all(row == first for row in _TAIL_LAST_FIVE_HISTORY)
@@ -167,13 +167,12 @@ def detect_speech_boundaries(
     above-``_VOICED_RMS`` frames reaches ``min_consecutive_speech_ms`` —
     a loose threshold that catches even quiet speech.
 
-    ``speech_ended`` becomes True once speech has started AND the LOUDEST
-    frame in the most recent ``silence_after_speech_ms`` of audio is below
-    ``_SPEECH_TAIL_RMS`` (the "clearly speech-level energy" threshold).
-    Using the tail peak rather than counting voiced frames keeps silence
-    detection working on lines whose noise floor sits above ``_VOICED_RMS``:
-    such noise never peaks near speech energy, so the tail is correctly
-    classified as silent.
+    ``speech_ended`` becomes True once speech has started AND the 90th-
+    percentile RMS in the most recent ``silence_after_speech_ms`` of audio is
+    below ``_SPEECH_TAIL_RMS`` (the "clearly speech-level energy" threshold).
+    Using the 90th percentile rather than the peak tolerates a handful of
+    transient noise spikes (breaths, line clicks, etc.) per window without
+    pinning the silence decision at False indefinitely.
     """
     if not mulaw_bytes:
         return False, False
@@ -191,26 +190,34 @@ def detect_speech_boundaries(
     window_frames = max(1, silence_after_speech_ms // _VAD_FRAME_MS)
 
     tail_rms = rms_values[-window_frames:]
-    tail_peak_rms = max(tail_rms)
-    speech_ended = tail_peak_rms < _SPEECH_TAIL_RMS
+    tail_peak_rms = float(max(tail_rms))
+    tail_p90_rms = float(np.percentile(tail_rms, 90))
+    speech_ended = tail_p90_rms < _SPEECH_TAIL_RMS
+    glitch_forced = False
 
-    # glitch in twilio, sending same audio chunk multiple times.
+    # Belt-and-braces: if Twilio sends the same media chunk N times in a row
+    # (we've seen this glitch in practice) the tail RMS values stop changing
+    # across consecutive VAD evaluations. When that happens we force
+    # speech_ended so the call doesn't stall waiting for fresh audio that
+    # never arrives.
     if (
         tail_last_five_stable_last_three_updates(tail_rms)
         and speech_started
         and not speech_ended
     ):
         speech_ended = True
+        glitch_forced = True
 
     if len(rms_values) < window_frames and not speech_ended:
         return True, False
 
-    # tail_rms = rms_values[-window_frames:]
-    # tail_peak_rms = max(tail_rms)
-    # speech_ended = tail_peak_rms < _SPEECH_TAIL_RMS
     logger.debug(
-        "vad: tail_peak_rms=%.0f speech_floor=%.0f",
+        "vad: tail_peak_rms=%.0f tail_p90_rms=%.0f speech_floor=%.0f "
+        "speech_ended=%s glitch_forced=%s",
         tail_peak_rms,
+        tail_p90_rms,
         _SPEECH_TAIL_RMS,
+        speech_ended,
+        glitch_forced,
     )
     return True, speech_ended
