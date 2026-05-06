@@ -9,7 +9,7 @@ from fastapi import WebSocket
 from constants import audio_files as audio_const
 from constants import call_phases as phases
 from services import account_service
-from services import llm_service as llm
+from services import llm
 from services.number_extractor import extract_number
 from utils.misc import is_valid_account_number
 

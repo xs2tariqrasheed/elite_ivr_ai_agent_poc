@@ -8,7 +8,7 @@ from fastapi import WebSocket
 
 from constants import audio_files as audio_const
 from constants import call_phases as phases
-from services import llm_service as llm
+from services import llm
 from services.phone_extractor import extract_phone
 from utils.misc import is_valid_phone
 
