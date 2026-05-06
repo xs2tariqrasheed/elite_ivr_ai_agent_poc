@@ -28,7 +28,7 @@ from services import call_state_service
 from services import intent_service as intent
 from services import llm_service as llm
 from services import stt_service as stt
-from phase_handlers.call_phases import _run_call_flow
+from phase_handlers.call_phase_registry import _run_call_flow
 
 
 setup_logging()

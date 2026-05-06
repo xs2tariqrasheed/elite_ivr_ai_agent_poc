@@ -12,7 +12,8 @@ from services import llm_service as llm
 from services.phone_extractor import extract_phone
 from utils.misc import is_valid_phone
 
-from phase_handlers.call_phases import _listen, _speak
+from phase_handlers.listen import _listen
+from phase_handlers.speak import _speak
 
 
 logger = logging.getLogger(__name__)

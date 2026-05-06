@@ -9,7 +9,8 @@ from constants import audio_files as audio_const
 from constants import call_phases as phases
 from services import intent_service as intent
 
-from phase_handlers.call_phases import _listen, _speak
+from phase_handlers.listen import _listen
+from phase_handlers.speak import _speak
 
 
 logger = logging.getLogger(__name__)

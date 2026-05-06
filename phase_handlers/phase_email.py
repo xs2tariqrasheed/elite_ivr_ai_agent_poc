@@ -5,7 +5,8 @@ from fastapi import WebSocket
 from constants import audio_files as audio_const
 from constants import call_phases as phases
 
-from phase_handlers.call_phases import _listen, _speak
+from phase_handlers.listen import _listen
+from phase_handlers.speak import _speak
 
 
 async def _run_phase_email(websocket: WebSocket, state) -> str:

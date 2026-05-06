@@ -13,7 +13,8 @@ from services import llm_service as llm
 from services.number_extractor import extract_number
 from utils.misc import is_valid_account_number
 
-from phase_handlers.call_phases import _listen, _speak
+from phase_handlers.listen import _listen
+from phase_handlers.speak import _speak
 
 
 logger = logging.getLogger(__name__)
