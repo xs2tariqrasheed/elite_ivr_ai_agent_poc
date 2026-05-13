@@ -1,8 +1,8 @@
 """Text-to-speech service using ElevenLabs.
 
 Synthesizes mp3 audio from text via the ``elevenlabs`` Python SDK,
-re-encodes the result to 320 kbps mono mp3 with ffmpeg, and writes
-it into ``config.AUDIO_DIR``.
+re-encodes the result to IVR-friendly 64 kbps mono/16kHz mp3 with
+ffmpeg, and writes it into ``config.AUDIO_DIR``.
 """
 import logging
 import os
@@ -65,7 +65,7 @@ def text_to_speech(input_text: str, file_name: str) -> str:
     if not ffmpeg_bin:
         raise TextToSpeechError("ffmpeg executable not found on PATH")
 
-    # Re-encode to 320 kbps mono mp3 via ffmpeg stdin/stdout pipes.
+    # Re-encode to IVR-friendly mono mp3 (16kHz, 64 kbps) via pipes.
     cmd = [
         ffmpeg_bin,
         "-hide_banner",
@@ -73,7 +73,8 @@ def text_to_speech(input_text: str, file_name: str) -> str:
         "-y",
         "-i", "pipe:0",
         "-ac", "1",
-        "-b:a", "320k",
+        "-ar", "16000",
+        "-b:a", "64k",
         "-f", "mp3",
         "pipe:1",
     ]
@@ -92,6 +93,8 @@ def text_to_speech(input_text: str, file_name: str) -> str:
         f.write(result.stdout)
 
     logger.info(
-        "Saved TTS audio to %s (%d bytes, 320kbps mono)", out_path, len(result.stdout)
+        "Saved TTS audio to %s (%d bytes, 64kbps mono @ 16kHz)",
+        out_path,
+        len(result.stdout),
     )
     return out_path
