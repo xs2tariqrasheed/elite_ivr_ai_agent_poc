@@ -149,3 +149,5 @@ alembic downgrade -1        # undo last migration
 Make a new migration after you change db/models.py:
 
 alembic revision --autogenerate -m "describe the change"
+
+git worktree remove .claude/worktrees/gracious-merkle-693e12

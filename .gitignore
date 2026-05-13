@@ -63,3 +63,6 @@ Thumbs.db
 
 # sub env (non-.venv names)
 coqui_tts/tts-env/
+
+# worktrees
+.claude/worktrees/
