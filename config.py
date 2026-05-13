@@ -37,6 +37,21 @@ AUDIO_DIR = _get("AUDIO_DIR", "audio_files")
 # Data
 DUMMY_DATA_PATH = _get("DUMMY_DATA_PATH", "dummy_data.json")
 
+# Database (Postgres via SQLAlchemy)
+#
+# DATABASE_URL is what the running app uses for queries. On Supabase this is
+# normally the pooled (pgbouncer) URL on port 6543.
+#
+# DIRECT_URL is used by Alembic for migrations because DDL inside a transaction
+# does not behave well through pgbouncer in transaction-pool mode. On Supabase
+# this is the direct connection on port 5432. If unset, DATABASE_URL is reused.
+DATABASE_URL = _get(
+    "DATABASE_URL",
+    "postgresql+psycopg2://postgres:postgres@localhost:5432/elite_ivr",
+)
+DIRECT_URL = _get("DIRECT_URL", DATABASE_URL)
+DB_ECHO = _get("DB_ECHO", "false").lower() in ("1", "true", "yes")
+
 # Server
 HOST = _get("HOST", "0.0.0.0")
 PORT = int(_get("PORT", "8000"))
