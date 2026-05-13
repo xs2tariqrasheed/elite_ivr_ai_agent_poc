@@ -34,6 +34,11 @@ WHISPER_LANGUAGE = _get("WHISPER_LANGUAGE", "en")
 # Audio
 AUDIO_DIR = _get("AUDIO_DIR", "audio_files")
 
+# ElevenLabs TTS
+ELEVENLABS_API_KEY = _get("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = _get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+ELEVENLABS_MODEL_ID = _get("ELEVENLABS_MODEL_ID", "eleven_monolingual_v1")
+
 # Data
 DUMMY_DATA_PATH = _get("DUMMY_DATA_PATH", "dummy_data.json")
 
