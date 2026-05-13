@@ -1,23 +1,28 @@
 """Text-to-speech service using ElevenLabs.
 
-Synthesizes mp3 audio from text via the ElevenLabs HTTP API and writes
-the result into ``config.AUDIO_DIR``.
+Synthesizes mp3 audio from text via the ``elevenlabs`` Python SDK and
+writes the result into ``config.AUDIO_DIR``.
 """
 import logging
 import os
+from functools import lru_cache
 
-import requests
+from elevenlabs.client import ElevenLabs
 
 import config
 
 logger = logging.getLogger(__name__)
 
 
-_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-
-
 class TextToSpeechError(Exception):
-    """Raised when the ElevenLabs API call fails."""
+    """Raised when the ElevenLabs SDK call fails."""
+
+
+@lru_cache(maxsize=1)
+def _get_client() -> ElevenLabs:
+    if not config.ELEVENLABS_API_KEY:
+        raise TextToSpeechError("ELEVENLABS_API_KEY is not configured")
+    return ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
 
 
 def text_to_speech(input_text: str, file_name: str) -> str:
@@ -30,35 +35,31 @@ def text_to_speech(input_text: str, file_name: str) -> str:
         raise ValueError("input_text must not be empty")
     if not file_name:
         raise ValueError("file_name must not be empty")
-    if not config.ELEVENLABS_API_KEY:
-        raise TextToSpeechError("ELEVENLABS_API_KEY is not configured")
 
-    url = _TTS_URL.format(voice_id=config.ELEVENLABS_VOICE_ID)
-    headers = {
-        "xi-api-key": config.ELEVENLABS_API_KEY,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg",
-    }
-    payload = {
-        "text": input_text,
-        "model_id": config.ELEVENLABS_MODEL_ID,
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.75,
-        },
-    }
+    client = _get_client()
 
-    logger.info("Requesting ElevenLabs TTS for file %s (%d chars)", file_name, len(input_text))
-    response = requests.post(url, json=payload, headers=headers, timeout=60)
-    if response.status_code != 200:
-        raise TextToSpeechError(
-            f"ElevenLabs API error {response.status_code}: {response.text}"
+    logger.info(
+        "Requesting ElevenLabs TTS for file %s (%d chars)", file_name, len(input_text)
+    )
+    try:
+        audio_stream = client.text_to_speech.convert(
+            text=input_text,
+            voice_id=config.ELEVENLABS_VOICE_ID,
+            model_id=config.ELEVENLABS_MODEL_ID,
+            output_format="mp3_44100_128",
         )
+    except Exception as exc:
+        raise TextToSpeechError(f"ElevenLabs SDK error: {exc}") from exc
 
     os.makedirs(config.AUDIO_DIR, exist_ok=True)
     out_path = os.path.join(config.AUDIO_DIR, file_name)
-    with open(out_path, "wb") as f:
-        f.write(response.content)
 
-    logger.info("Saved TTS audio to %s (%d bytes)", out_path, len(response.content))
+    total_bytes = 0
+    with open(out_path, "wb") as f:
+        for chunk in audio_stream:
+            if chunk:
+                f.write(chunk)
+                total_bytes += len(chunk)
+
+    logger.info("Saved TTS audio to %s (%d bytes)", out_path, total_bytes)
     return out_path
