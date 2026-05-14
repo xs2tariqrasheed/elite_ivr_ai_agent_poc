@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 async def _run_phase_callback_number(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_CALLBACK_NUMBER
-    await _speak(websocket, state, audio_const.CALLBACK_NUMBER)
+    await _speak(websocket, state, [[audio_const.CALLBACK_NUMBER]])
     text = await _listen(
         state,
         initial_prompt="The caller will say a 10-digit US phone number.",

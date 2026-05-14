@@ -18,8 +18,11 @@ logger = logging.getLogger(__name__)
 
 async def _run_phase_intent(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_INTENT
-    await _speak(websocket, state, "account_names", "12345")
-    await _speak(websocket, state, audio_const.GREET_UNKNOWN)
+    await _speak(
+        websocket,
+        state,
+        [["account_names", "12345"], [audio_const.GREET_UNKNOWN]],
+    )
     text = await _listen(
         state,
         initial_prompt="The caller is calling Elite Limousine to make a reservation or ask for help.",
@@ -40,5 +43,5 @@ async def _run_phase_intent(websocket: WebSocket, state) -> str:
         return phases.PHASE_ACCOUNT_NUMBER
 
     # "other" intent — apologise and hang up
-    await _speak(websocket, state, audio_const.OTHER_INTENT)
+    await _speak(websocket, state, [[audio_const.OTHER_INTENT]])
     return phases.PHASE_HANGUP

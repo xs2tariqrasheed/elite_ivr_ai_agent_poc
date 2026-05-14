@@ -29,7 +29,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from pydub import AudioSegment
 
@@ -183,34 +183,47 @@ def _frames_for(*audio_path: str) -> List[str]:
 async def play_audio(
     websocket,
     stream_sid: str,
-    *audio_path: str,
+    clips: Sequence[Sequence[str]],
     mark_name: Optional[str] = None,
 ) -> str:
-    """Stream a cached audio clip to Twilio.
+    """Stream one or more cached clips to Twilio as a single utterance.
 
-    ``audio_path`` is the directory-walk relative to ``AUDIO_DIR``, e.g.
-    ``play_audio(ws, sid, "rec_account_name")`` for a top-level clip or
-    ``play_audio(ws, sid, "account_names", "12345")`` for a nested one.
+    ``clips`` is a sequence of clip paths, where each clip path is itself
+    a sequence of directory-walk segments relative to ``AUDIO_DIR``::
 
-    Sends every 20 ms frame followed by a ``mark`` event.  Twilio echoes
-    that mark back when the audio has actually finished playing on the
-    caller's line, which is what enables non-interruptible flow.
+        play_audio(ws, sid, [["rec_account_name"]])
+        play_audio(ws, sid, [["account_names", "12345"], ["rec_greet_unknown"]])
+
+    Frames from every clip are concatenated and sent back-to-back over
+    the WebSocket, followed by a single ``mark`` event.  Twilio echoes
+    that mark back once the entire merged sequence has finished playing
+    on the caller's line, which is what enables non-interruptible flow.
 
     Returns the mark name that was sent so the caller can wait for it.
     """
-    frames = _frames_for(*audio_path)
-    label = "_".join(audio_path)
+    if not clips:
+        raise ValueError("clips must contain at least one clip")
+
+    all_frames: List[str] = []
+    labels: List[str] = []
+    for clip in clips:
+        if not clip:
+            raise ValueError("each clip must contain at least one path segment")
+        all_frames.extend(_frames_for(*clip))
+        labels.append("_".join(clip))
+
     if mark_name is None:
-        mark_name = f"end_{label}_{uuid.uuid4().hex[:8]}"
+        mark_name = f"end_{'__'.join(labels)}_{uuid.uuid4().hex[:8]}"
 
     logger.info(
-        "Playing audio %s on stream %s (%d frames)",
-        "/".join(audio_path),
+        "Playing audio sequence %s on stream %s (%d clips, %d frames)",
+        " + ".join("/".join(c) for c in clips),
         stream_sid,
-        len(frames),
+        len(clips),
+        len(all_frames),
     )
 
-    for frame_b64 in frames:
+    for frame_b64 in all_frames:
         msg = {
             "event": "media",
             "streamSid": stream_sid,
@@ -218,8 +231,8 @@ async def play_audio(
         }
         await websocket.send_text(json.dumps(msg))
 
-    # Mark event - Twilio will echo this back after the buffered audio
-    # has finished playing.
+    # Single mark for the entire merged sequence - Twilio will echo this
+    # back after all buffered audio has finished playing.
     mark_msg = {
         "event": "mark",
         "streamSid": stream_sid,

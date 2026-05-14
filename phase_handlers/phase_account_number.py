@@ -29,7 +29,7 @@ async def _run_phase_account_number(websocket: WebSocket, state) -> str:
             if attempt == 1
             else audio_const.ACCOUNT_NUMBER_RETRY
         )
-        await _speak(websocket, state, clip)
+        await _speak(websocket, state, [[clip]])
         text = await _listen(
             state,
             initial_prompt="The caller will say their 4-digit account number.",
@@ -57,7 +57,7 @@ async def _run_phase_account_number(websocket: WebSocket, state) -> str:
         record = account_service.find_account_by_number(account_number)
         if record is None:
             logger.info("account_number: %s not found in dummy data", account_number)
-            await _speak(websocket, state, audio_const.ACCOUNT_NOT_FOUND)
+            await _speak(websocket, state, [[audio_const.ACCOUNT_NOT_FOUND]])
             return phases.PHASE_HANGUP
 
         # Success
@@ -67,5 +67,5 @@ async def _run_phase_account_number(websocket: WebSocket, state) -> str:
 
     # Two failed attempts
     logger.info("account_number: exhausted retries — hanging up")
-    await _speak(websocket, state, audio_const.ACCOUNT_NOT_FOUND)
+    await _speak(websocket, state, [[audio_const.ACCOUNT_NOT_FOUND]])
     return phases.PHASE_HANGUP

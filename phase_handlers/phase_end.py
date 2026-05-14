@@ -20,5 +20,5 @@ async def _run_phase_end(websocket: WebSocket, state) -> str:
         state.call_sid,
         state.reservation.as_summary_dict(),
     )
-    await _speak(websocket, state, audio_const.GOOD_BYE)
+    await _speak(websocket, state, [[audio_const.GOOD_BYE]])
     return phases.PHASE_HANGUP

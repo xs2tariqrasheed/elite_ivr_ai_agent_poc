@@ -11,6 +11,6 @@ from phase_handlers.speak import _speak
 
 async def _run_phase_email(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_EMAIL
-    await _speak(websocket, state, audio_const.EMAIL)
+    await _speak(websocket, state, [[audio_const.EMAIL]])
     state.reservation.email = (await _listen(state, max_seconds=15.0)).strip()
     return phases.PHASE_END
