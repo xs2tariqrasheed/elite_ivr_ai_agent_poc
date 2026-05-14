@@ -19,10 +19,16 @@ import urllib.request
 #     "[curious] Do you want a new reservation, or have questions about something else?"
 # )
 
+PROMPT_ACCOUNT_NOT_FOUND = (
+    "[politely] Hi this is Ann. "
+    "[apologetic] We could not find account for this caller ID. "
+    "[reassuring] Let me connect you to the customer service desk."
+)
+
 
 DEFAULT_URL = "http://localhost:8000/gen-audio"
 
-message_to_say = "Hi this is Ann. Welcome back to Elite Limousine."
+message_to_say = PROMPT_ACCOUNT_NOT_FOUND
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--file-name",
-        default="ann_welcome_back.mp3",
+        default="account_not_found.mp3",
         help="File name to save the audio to.",
     )
     parser.add_argument(

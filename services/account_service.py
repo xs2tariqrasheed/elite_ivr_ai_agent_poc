@@ -200,3 +200,14 @@ def get_account_by_account_number(
         return db.execute(stmt).scalar_one_or_none()
     with get_db() as session:
         return session.execute(stmt).scalar_one_or_none()
+
+
+def get_account_by_phone(
+    phone: str, *, db: Optional[Session] = None
+) -> Optional[Account]:
+    """Fetch an account by its ``phone`` (or ``None``)."""
+    stmt = select(Account).where(Account.phone == phone)
+    if db is not None:
+        return db.execute(stmt).scalar_one_or_none()
+    with get_db() as session:
+        return session.execute(stmt).scalar_one_or_none()

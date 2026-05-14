@@ -4,7 +4,7 @@ import logging
 import os
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 import config
 from services import account_service
@@ -62,7 +62,11 @@ KNOWN_GREET_SUBDIR = "known_greet_hi"
 
 class KnownGreetAudioRequest(BaseModel):
     name: str = Field(..., min_length=1)
-    account: str = Field(..., min_length=1)
+    account: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("account", "account_number", "phone"),
+    )
 
 
 def get_known_greet_text(name: str) -> str:
@@ -72,18 +76,21 @@ def get_known_greet_text(name: str) -> str:
 @router.post("/known-greet-audio")
 def create_known_greet_audio(payload: KnownGreetAudioRequest) -> str:
     """Generate an ElevenLabs TTS clip of ``name`` and save it as
-    ``<account>.mp3`` under ``audio_files/known_greet_hi``.
+    ``<account_number>.mp3`` under ``audio_files/known_greet_hi``.
 
+    Accepts either an account number or phone number for account lookup.
     Overwrites the file if one already exists for the same account number.
     """
-    safe_account_number = os.path.basename(payload.account.strip())
-    if not safe_account_number:
+    safe_account_identifier = os.path.basename(payload.account.strip())
+    if not safe_account_identifier:
         raise HTTPException(status_code=400, detail="account is invalid")
     safe_name = payload.name.strip()
     if not safe_name:
         raise HTTPException(status_code=400, detail="name is invalid")
 
-    account = account_service.get_account_by_account_number(safe_account_number)
+    account = account_service.get_account_by_account_number(safe_account_identifier)
+    if account is None:
+        account = account_service.get_account_by_phone(safe_account_identifier)
     if account is None:
         raise HTTPException(status_code=404, detail="account not found")
     account_service.update_account(account.id, name=safe_name)
@@ -91,11 +98,11 @@ def create_known_greet_audio(payload: KnownGreetAudioRequest) -> str:
     target_dir = os.path.join(config.AUDIO_DIR, KNOWN_GREET_SUBDIR)
     os.makedirs(target_dir, exist_ok=True)
 
-    file_name = os.path.join(KNOWN_GREET_SUBDIR, f"{safe_account_number}.mp3")
+    file_name = os.path.join(KNOWN_GREET_SUBDIR, f"{account.account_number}.mp3")
     try:
         text_to_speech(get_known_greet_text(safe_name), file_name)
     except TextToSpeechError as exc:
-        logger.exception("TTS failed for account %s", safe_account_number)
+        logger.exception("TTS failed for account %s", account.account_number)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
