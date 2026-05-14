@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title }}</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #ffffff;
+        --muted: #64748b;
+        --text: #0f172a;
+        --border: #e2e8f0;
+        --border-strong: #cbd5e1;
+        --primary: #2563eb;
+        --primary-hover: #1d4ed8;
+        --primary-soft: #eff6ff;
+        --success-bg: #ecfdf5;
+        --success-border: #a7f3d0;
+        --success-text: #065f46;
+        --error-bg: #fef2f2;
+        --error-border: #fecaca;
+        --error-text: #991b1b;
+        --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        color: var(--text);
+        background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 50%, #ecfeff 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 48px 16px;
+      }
+      .wrap {
+        width: 100%;
+        max-width: 560px;
+      }
+      header {
+        margin-bottom: 24px;
+      }
+      h1 {
+        font-size: 24px;
+        margin: 0 0 6px;
+        letter-spacing: -0.01em;
+      }
+      .subtitle {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+        padding: 28px;
+      }
+      .card + .card {
+        margin-top: 20px;
+      }
+      .card h2 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      .card .hint {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0 0 20px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 16px;
+      }
+      label {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .label-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .label-row .help {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 400;
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 11px 13px;
+        border: 1px solid var(--border-strong);
+        border-radius: 9px;
+        font-size: 14px;
+        background: #fff;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        outline: none;
+        font-family: inherit;
+      }
+      input[type="text"]:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+      }
+      input[type="text"]:disabled {
+        background: #f8fafc;
+        color: var(--muted);
+      }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 4px;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        background: var(--primary);
+        color: #fff;
+        padding: 11px 18px;
+        border-radius: 9px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, transform 0.05s;
+        font-family: inherit;
+      }
+      button:hover:not(:disabled) { background: var(--primary-hover); }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled {
+        background: #94a3b8;
+        cursor: not-allowed;
+      }
+      .secondary {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border-strong);
+      }
+      .secondary:hover:not(:disabled) {
+        background: #f8fafc;
+        color: var(--text);
+      }
+      .alert {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 9px;
+        font-size: 13px;
+        line-height: 1.5;
+        border: 1px solid transparent;
+        display: none;
+      }
+      .alert.success {
+        background: var(--success-bg);
+        border-color: var(--success-border);
+        color: var(--success-text);
+      }
+      .alert.error {
+        background: var(--error-bg);
+        border-color: var(--error-border);
+        color: var(--error-text);
+      }
+      .alert strong { display: block; margin-bottom: 2px; }
+      .endpoint {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        color: var(--muted);
+        background: var(--primary-soft);
+        border: 1px solid #dbeafe;
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+      .endpoint .method { color: var(--primary); font-weight: 700; }
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        vertical-align: -2px;
+        margin-right: 6px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      footer {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>{{ title }}</h1>
+        <p class="subtitle">Trigger backend APIs from a friendly UI.</p>
+      </header>
+
+      <section class="card">
+        <h2>Generate known-caller greeting audio</h2>
+        <p class="hint">
+          Synthesizes a personalized "Hi &lt;name&gt;" clip and saves it under the
+          caller's account. Accepts an account number or phone.
+        </p>
+        <div style="margin-bottom: 18px;">
+          <span class="endpoint">
+            <span class="method">POST</span> /known-greet-audio
+          </span>
+        </div>
+
+        <form id="greet-form" autocomplete="off" novalidate>
+          <div class="field">
+            <div class="label-row">
+              <label for="name">Name</label>
+              <span class="help">As it should be spoken</span>
+            </div>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              placeholder="e.g. Jim"
+              required
+              autofocus
+            />
+          </div>
+
+          <div class="field">
+            <div class="label-row">
+              <label for="account">Account or phone</label>
+              <span class="help">Account number or E.164 phone</span>
+            </div>
+            <input
+              type="text"
+              id="account"
+              name="account"
+              placeholder="e.g. +923234251430"
+              required
+            />
+          </div>
+
+          <div class="actions">
+            <button type="submit" id="submit-btn">Generate audio</button>
+            <button type="button" id="reset-btn" class="secondary">Reset</button>
+          </div>
+
+          <div id="alert" class="alert" role="status" aria-live="polite"></div>
+        </form>
+      </section>
+
+      <footer>Elite Limousine IVR — admin console</footer>
+    </div>
+
+    <script>
+      (function () {
+        const form = document.getElementById("greet-form");
+        const nameInput = document.getElementById("name");
+        const accountInput = document.getElementById("account");
+        const submitBtn = document.getElementById("submit-btn");
+        const resetBtn = document.getElementById("reset-btn");
+        const alertBox = document.getElementById("alert");
+
+        function showAlert(kind, title, body) {
+          alertBox.className = "alert " + kind;
+          alertBox.style.display = "block";
+          alertBox.innerHTML =
+            "<strong>" + escapeHtml(title) + "</strong>" + escapeHtml(body || "");
+        }
+
+        function clearAlert() {
+          alertBox.style.display = "none";
+          alertBox.textContent = "";
+        }
+
+        function escapeHtml(s) {
+          return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+
+        function setLoading(loading) {
+          submitBtn.disabled = loading;
+          resetBtn.disabled = loading;
+          nameInput.disabled = loading;
+          accountInput.disabled = loading;
+          submitBtn.innerHTML = loading
+            ? '<span class="spinner"></span>Generating…'
+            : "Generate audio";
+        }
+
+        resetBtn.addEventListener("click", function () {
+          form.reset();
+          clearAlert();
+          nameInput.focus();
+        });
+
+        form.addEventListener("submit", async function (e) {
+          e.preventDefault();
+          clearAlert();
+
+          const name = nameInput.value.trim();
+          const account = accountInput.value.trim();
+          if (!name || !account) {
+            showAlert(
+              "error",
+              "Missing fields",
+              "Please fill in both name and account."
+            );
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const res = await fetch("/known-greet-audio", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name, account }),
+            });
+            const text = await res.text();
+            let parsed = text;
+            try { parsed = JSON.parse(text); } catch (_) {}
+
+            if (!res.ok) {
+              const detail =
+                (parsed && parsed.detail) || text || res.statusText;
+              showAlert("error", "Request failed (" + res.status + ")", detail);
+            } else {
+              showAlert(
+                "success",
+                "Audio generated",
+                'Saved clip for "' + name + '" on account ' + account + "."
+              );
+            }
+          } catch (err) {
+            showAlert("error", "Network error", err && err.message);
+          } finally {
+            setLoading(false);
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
