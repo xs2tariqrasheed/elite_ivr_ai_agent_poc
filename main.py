@@ -4,6 +4,7 @@ Routes are defined under the ``routes`` package and registered here.
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -20,15 +21,9 @@ from services import stt_service as stt
 setup_logging()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Elite Limousine IVR")
 
-app.include_router(health_router)
-app.include_router(twilio_router)
-app.include_router(account_audio_router)
-
-
-@app.on_event("startup")
-def on_startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("Booting Elite IVR …")
     voice.load_audio_files()
     stt.load_model()
@@ -36,6 +31,14 @@ def on_startup() -> None:
     account_service.load_accounts()
     llm.warm_up_model()
     logger.info("Boot complete")
+    yield
+
+
+app = FastAPI(title="Elite Limousine IVR", lifespan=lifespan)
+
+app.include_router(health_router)
+app.include_router(twilio_router)
+app.include_router(account_audio_router)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ OTHER_INTENT = "rec_other_intent"
 ACCOUNT_NUMBER = "rec_account_number"
 ACCOUNT_NUMBER_RETRY = "rec_account_number_retry"
 ACCOUNT_NOT_FOUND = "rec_account_not_found"
+# Played when the caller's phone number doesn't match any known account.
+CALLER_ACCOUNT_NOT_FOUND = "account_not_found"
 
 ACCOUNT_NAME = "rec_account_name"
 FIRST_NAME = "rec_first_name"
@@ -31,6 +33,7 @@ ALL_AUDIO_FILES = [
     ACCOUNT_NUMBER,
     ACCOUNT_NUMBER_RETRY,
     ACCOUNT_NOT_FOUND,
+    CALLER_ACCOUNT_NOT_FOUND,
     ACCOUNT_NAME,
     FIRST_NAME,
     LAST_NAME,

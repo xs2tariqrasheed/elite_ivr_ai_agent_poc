@@ -18,10 +18,11 @@ logger = logging.getLogger(__name__)
 
 async def _run_phase_intent(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_INTENT
+    account_number = state.account_info.get("account_number")
     await _speak(
         websocket,
         state,
-        [["known_greet_hi", "12345"], ["greet"]],
+        [["known_greet_hi", account_number], ["greet"]],
     )
     text = await _listen(
         state,

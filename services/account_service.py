@@ -66,6 +66,17 @@ def find_account_by_number(account_number: str) -> Optional[Dict]:
     return None
 
 
+def find_account_by_phone(phone: str) -> Optional[Dict]:
+    """Return the account dict whose ``phone`` matches, or ``None``."""
+    if not phone:
+        return None
+    target = str(phone).strip()
+    for acc in _accounts:
+        if str(acc.get("phone") or "").strip() == target:
+            return acc
+    return None
+
+
 # ---------------------------------------------------------------------------
 # DB-backed CRUD
 # ---------------------------------------------------------------------------

@@ -52,6 +52,11 @@ class CallState:
     phase: str = PHASE_START
     reservation: Reservation = field(default_factory=Reservation)
 
+    # Account row (from the in-memory cache) matched to ``caller_phone``
+    # at call-start time. ``None`` means the incoming number didn't match
+    # any known account and the call should be terminated.
+    account_info: Optional[Dict] = None
+
     # Flow-control flags. These are toggled by the orchestrator and
     # read by the WebSocket receive loop.
     agent_speaking: bool = True   # we always start with agent talking

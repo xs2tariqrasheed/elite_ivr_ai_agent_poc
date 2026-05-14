@@ -23,6 +23,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from twilio.rest import Client as TwilioClient
 
 import config
+from constants import audio_files as audio_const
 from constants import call_phases as phases
 from services import agent_voice_service as voice
 from services import call_state_service
@@ -105,6 +106,21 @@ async def _run_call_flow(websocket: WebSocket, state) -> None:
 
     current = phases.PHASE_INTENT
     try:
+        # If the caller's phone didn't match any known account, play the
+        # "account not found" clip and short-circuit straight to hang-up.
+        if state.account_info is None:
+            from phase_handlers.speak import _speak
+
+            logger.info(
+                "Caller account not found for caller_phone=%s — playing "
+                "account_not_found and hanging up",
+                state.caller_phone or "n/a",
+            )
+            await _speak(
+                websocket, state, [[audio_const.CALLER_ACCOUNT_NOT_FOUND]]
+            )
+            return
+
         while not phase_manager.is_terminal(current):
             handler = _PHASE_HANDLERS.get(current)
             if handler is None:

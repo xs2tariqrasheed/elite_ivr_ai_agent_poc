@@ -12,7 +12,7 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
 import config
-from services import call_state_service
+from services import account_service, call_state_service
 from phase_handlers.call_phase_registry import _run_call_flow
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,21 @@ async def twilio_stream(websocket: WebSocket) -> None:
                 state = call_state_service.create_call_state(
                     call_sid, stream_sid, caller_phone=caller_phone
                 )
+                state.account_info = account_service.find_account_by_phone(
+                    state.caller_phone or ""
+                )
+                if state.account_info is None:
+                    logger.info(
+                        "No account matched caller_phone=%s — will play "
+                        "account_not_found and hang up",
+                        state.caller_phone or "n/a",
+                    )
+                else:
+                    logger.info(
+                        "Matched caller_phone=%s to account_number=%s",
+                        state.caller_phone,
+                        state.account_info.get("account_number"),
+                    )
                 flow_task = asyncio.create_task(_run_call_flow(websocket, state))
 
             elif event == "media":
