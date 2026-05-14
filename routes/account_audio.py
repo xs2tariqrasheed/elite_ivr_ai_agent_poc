@@ -7,12 +7,23 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import config
+from services import account_service
 from services import agent_voice_service as voice
 from services.text_to_speech_service import TextToSpeechError, text_to_speech
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/accounts")
+def list_loaded_accounts() -> dict:
+    """List all account records currently loaded in memory."""
+    accounts = account_service.get_loaded_accounts()
+    return {
+        "count": len(accounts),
+        "accounts": accounts,
+    }
 
 
 @router.get("/audio-cache")
@@ -68,17 +79,39 @@ def create_known_greet_audio(payload: KnownGreetAudioRequest) -> str:
     safe_account_number = os.path.basename(payload.account.strip())
     if not safe_account_number:
         raise HTTPException(status_code=400, detail="account is invalid")
+    safe_name = payload.name.strip()
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="name is invalid")
+
+    account = account_service.get_account_by_account_number(safe_account_number)
+    if account is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    account_service.update_account(account.id, name=safe_name)
 
     target_dir = os.path.join(config.AUDIO_DIR, KNOWN_GREET_SUBDIR)
     os.makedirs(target_dir, exist_ok=True)
 
     file_name = os.path.join(KNOWN_GREET_SUBDIR, f"{safe_account_number}.mp3")
     try:
-        text_to_speech(get_known_greet_text(payload.name), file_name)
+        text_to_speech(get_known_greet_text(safe_name), file_name)
     except TextToSpeechError as exc:
         logger.exception("TTS failed for account %s", safe_account_number)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # reload accounts with try except
+    try:
+        account_service.load_accounts()
+    except Exception as exc:
+        logger.exception("Failed to reload accounts")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # reload audio cache with try except
+    try:
+        voice.load_audio_files()
+    except Exception as exc:
+        logger.exception("Failed to reload audio cache")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return "ok"

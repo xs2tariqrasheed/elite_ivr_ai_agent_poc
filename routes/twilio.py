@@ -5,6 +5,8 @@ import json
 import logging
 import time
 from typing import Optional
+from urllib.parse import parse_qs
+from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
@@ -22,15 +24,30 @@ router = APIRouter()
 async def voice_webhook(request: Request) -> Response:
     """Return TwiML that asks Twilio to open a Media Stream to us."""
     ws_url = config.TWILIO_STREAM_WS_URL
+    # Twilio sends application/x-www-form-urlencoded by default.
+    # Parse raw body to avoid requiring python-multipart dependency.
+    raw_body = (await request.body()).decode("utf-8", errors="ignore")
+    form_values = parse_qs(raw_body, keep_blank_values=True)
+    caller_phone = str((form_values.get("From") or [""])[0]).strip()
+    stream_params = ""
+    if caller_phone:
+        # Pass the caller phone into the WS "start.customParameters" payload.
+        stream_params = (
+            f'<Parameter name="caller_phone" value="{escape(caller_phone)}" />'
+        )
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         "<Response>"
         "<Connect>"
-        f'<Stream url="{ws_url}" />'
+        f'<Stream url="{ws_url}">{stream_params}</Stream>'
         "</Connect>"
         "</Response>"
     )
-    logger.info("Returning TwiML pointing Twilio at %s", ws_url)
+    logger.info(
+        "Returning TwiML pointing Twilio at %s (caller_phone=%s)",
+        ws_url,
+        caller_phone or "n/a",
+    )
     return Response(content=twiml, media_type="application/xml")
 
 
@@ -67,10 +84,22 @@ async def twilio_stream(websocket: WebSocket) -> None:
                 start = msg.get("start", {})
                 stream_sid = start.get("streamSid") or msg.get("streamSid")
                 call_sid = start.get("callSid")
-                logger.info(
-                    "Stream start: stream_sid=%s call_sid=%s", stream_sid, call_sid
+                custom_parameters = start.get("customParameters") or {}
+                caller_phone = (
+                    custom_parameters.get("caller_phone")
+                    or custom_parameters.get("From")
+                    or start.get("from")
+                    or start.get("caller")
                 )
-                state = call_state_service.create_call_state(call_sid, stream_sid)
+                logger.info(
+                    "Stream start: stream_sid=%s call_sid=%s caller_phone=%s",
+                    stream_sid,
+                    call_sid,
+                    caller_phone or "n/a",
+                )
+                state = call_state_service.create_call_state(
+                    call_sid, stream_sid, caller_phone=caller_phone
+                )
                 flow_task = asyncio.create_task(_run_call_flow(websocket, state))
 
             elif event == "media":

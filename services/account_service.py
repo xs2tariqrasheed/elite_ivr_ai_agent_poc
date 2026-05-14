@@ -1,22 +1,19 @@
 """Account service.
 
 Combines:
-  * legacy dummy-JSON lookup used by the live IVR flow
+  * startup cache + account-number lookup used by the live IVR flow
     (``load_accounts`` / ``find_account_by_number``)
-  * new SQLAlchemy/Postgres-backed CRUD helpers
+  * SQLAlchemy/Postgres-backed CRUD helpers
     (``create_account`` / ``update_account`` / ``delete_account`` and
     a couple of read helpers)
 """
-import json
 import logging
-import os
 from typing import Dict, List, Optional
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-import config
 from db.database import get_db
 from db.models import Account
 
@@ -24,28 +21,39 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Legacy dummy-data lookup (kept so the IVR call flow keeps working)
+# Startup account cache used by the IVR flow
 # ---------------------------------------------------------------------------
 
 _accounts: List[Dict] = []
 
 
-def load_accounts() -> None:
-    """Read ``DUMMY_DATA_PATH`` once at startup."""
-    global _accounts
-    path = config.DUMMY_DATA_PATH
-    if not os.path.exists(path):
-        logger.warning("Dummy data file not found at %s — accounts list will be empty", path)
-        _accounts = []
-        return
+def _account_to_dict(account: Account) -> Dict:
+    """Convert ORM model to the dict shape expected by IVR phase handlers."""
+    return {
+        "id": account.id,
+        "account_number": account.account_number,
+        "name": account.name,
+        "cid": account.cid,
+        "phone": account.phone,
+    }
 
+
+def load_accounts() -> None:
+    """Fetch all accounts from DB and cache them in memory at startup."""
+    global _accounts
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            _accounts = json.load(f)
-        logger.info("Loaded %d dummy accounts from %s", len(_accounts), path)
+        with get_db() as session:
+            rows = session.execute(select(Account)).scalars().all()
+            _accounts = [_account_to_dict(account) for account in rows]
+        logger.info("Loaded %d accounts from database", len(_accounts))
     except Exception:
-        logger.exception("Failed to load dummy accounts from %s", path)
+        logger.exception("Failed to load accounts from database")
         _accounts = []
+
+
+def get_loaded_accounts() -> List[Dict]:
+    """Return a copy of the in-memory account cache loaded at startup."""
+    return [dict(account) for account in _accounts]
 
 
 def find_account_by_number(account_number: str) -> Optional[Dict]:

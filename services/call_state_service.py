@@ -48,6 +48,7 @@ class Reservation:
 class CallState:
     call_sid: str
     stream_sid: str
+    caller_phone: Optional[str] = None
     phase: str = PHASE_START
     reservation: Reservation = field(default_factory=Reservation)
 
@@ -101,10 +102,21 @@ class CallState:
 _calls: Dict[str, CallState] = {}
 
 
-def create_call_state(call_sid: str, stream_sid: str) -> CallState:
-    state = CallState(call_sid=call_sid, stream_sid=stream_sid)
+def create_call_state(
+    call_sid: str, stream_sid: str, caller_phone: Optional[str] = None
+) -> CallState:
+    state = CallState(
+        call_sid=call_sid,
+        stream_sid=stream_sid,
+        caller_phone=caller_phone.strip() if caller_phone else None,
+    )
     _calls[stream_sid] = state
-    logger.info("Created call state call_sid=%s stream_sid=%s", call_sid, stream_sid)
+    logger.info(
+        "Created call state call_sid=%s stream_sid=%s caller_phone=%s",
+        call_sid,
+        stream_sid,
+        state.caller_phone,
+    )
     return state
 
 
