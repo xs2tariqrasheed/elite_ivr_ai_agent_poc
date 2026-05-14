@@ -10,7 +10,12 @@ from fastapi import FastAPI
 
 import config
 from logging_config import setup_logging
-from routes import account_audio_router, health_router, twilio_router
+from routes import (
+    account_audio_router,
+    admin_router,
+    health_router,
+    twilio_router,
+)
 from services import account_service
 from services import agent_voice_service as voice
 from services import intent_service as intent
@@ -39,6 +44,7 @@ app = FastAPI(title="Elite Limousine IVR", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(twilio_router)
 app.include_router(account_audio_router)
+app.include_router(admin_router)
 
 
 if __name__ == "__main__":
