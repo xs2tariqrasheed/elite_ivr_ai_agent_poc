@@ -1,10 +1,9 @@
 """Agent voice service.
 
 Responsibilities:
-    * Load every pre-recorded mp3 from ``AUDIO_DIR`` (one level deep)
+    * Load every pre-recorded mp3 from ``AUDIO_DIR`` (recursive)
       into memory at startup, transcoded once to the format Twilio
       Media Streams expects (mu-law @ 8 kHz mono).
-    * Expose a registry of audio constants (see ``constants.audio_files``).
     * Provide a helper to play a cached clip into a Twilio WebSocket.
 
 Twilio Media Streams send/receive base64-encoded G.711 mu-law payloads
@@ -34,7 +33,6 @@ from typing import Any, Dict, List, Optional, Sequence
 from pydub import AudioSegment
 
 import config
-from constants import audio_files as audio_const
 
 logger = logging.getLogger(__name__)
 
@@ -70,21 +68,37 @@ def _mp3_to_mulaw_frames(path: str) -> List[str]:
     return frames
 
 
-def _load_mp3s_from_dir(dir_path: str) -> Dict[str, List[str]]:
-    """Decode every ``*.mp3`` directly inside ``dir_path``."""
-    clips: Dict[str, List[str]] = {}
+def _load_audio_tree(dir_path: str) -> Dict[str, Any]:
+    """Recursively decode every ``*.mp3`` under ``dir_path`` into a tree."""
+    tree: Dict[str, Any] = {}
     for entry in sorted(os.listdir(dir_path)):
         full = os.path.join(dir_path, entry)
-        if not os.path.isfile(full) or not entry.lower().endswith(".mp3"):
+
+        if os.path.isfile(full) and entry.lower().endswith(".mp3"):
+            name = entry[:-4]
+            if name in tree and isinstance(tree[name], dict):
+                raise ValueError(
+                    f"Audio name conflict in {dir_path}: '{name}' exists as both file and directory"
+                )
+            try:
+                tree[name] = _mp3_to_mulaw_frames(full)
+                logger.debug("Loaded %s (%d frames)", full, len(tree[name]))
+            except Exception:
+                logger.exception("Failed to load audio file: %s", full)
+                raise
             continue
-        name = entry[:-4]
-        try:
-            clips[name] = _mp3_to_mulaw_frames(full)
-            logger.debug("Loaded %s (%d frames)", full, len(clips[name]))
-        except Exception:
-            logger.exception("Failed to load audio file: %s", full)
-            raise
-    return clips
+
+        if os.path.isdir(full):
+            sub_tree = _load_audio_tree(full)
+            if not sub_tree:
+                continue
+            if entry in tree and isinstance(tree[entry], list):
+                raise ValueError(
+                    f"Audio name conflict in {dir_path}: '{entry}' exists as both directory and file"
+                )
+            tree[entry] = sub_tree
+
+    return tree
 
 
 def _count_clips(node: Any) -> int:
@@ -99,7 +113,7 @@ def list_cached_audio_parts() -> List[List[str]]:
     """Return every cached clip path as path-parts.
 
     Each item includes the root key (usually ``audio_files``), followed by
-    optional sub-directory names and the clip filename without extension.
+    optional nested sub-directory names and the clip filename without extension.
     """
     parts_list: List[List[str]] = []
 
@@ -118,32 +132,14 @@ def list_cached_audio_parts() -> List[List[str]]:
 
 
 def load_audio_files() -> None:
-    """Pre-load every mp3 under ``AUDIO_DIR`` (one level deep).
-
-    Called once at app startup.  Required top-level files listed in
-    ``audio_const.ALL_AUDIO_FILES`` must be present or
-    ``FileNotFoundError`` is raised.
-    """
+    """Pre-load every mp3 under ``AUDIO_DIR`` recursively."""
     audio_dir = config.AUDIO_DIR
     logger.info("Loading audio files from %s", audio_dir)
 
     if not os.path.isdir(audio_dir):
         raise FileNotFoundError(f"AUDIO_DIR does not exist: {audio_dir}")
 
-    root_cache: Dict[str, Any] = _load_mp3s_from_dir(audio_dir)
-
-    for entry in sorted(os.listdir(audio_dir)):
-        sub_path = os.path.join(audio_dir, entry)
-        if not os.path.isdir(sub_path):
-            continue
-        sub_clips = _load_mp3s_from_dir(sub_path)
-        if sub_clips:
-            root_cache[entry] = sub_clips
-
-    for name in audio_const.ALL_AUDIO_FILES:
-        if name not in root_cache or not isinstance(root_cache[name], list):
-            path = os.path.join(audio_dir, name + ".mp3")
-            raise FileNotFoundError(f"Required audio file is missing: {path}")
+    root_cache = _load_audio_tree(audio_dir)
 
     _AUDIO_CACHE.clear()
     _AUDIO_CACHE[_audio_root_key()] = root_cache

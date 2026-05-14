@@ -21,7 +21,7 @@ async def _run_phase_intent(websocket: WebSocket, state) -> str:
     await _speak(
         websocket,
         state,
-        [["account_names", "12345"], [audio_const.GREET_UNKNOWN]],
+        [["known_greet_hi", "12345"], ["greet"]],
     )
     text = await _listen(
         state,
