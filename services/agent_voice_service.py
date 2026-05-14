@@ -95,6 +95,28 @@ def _count_clips(node: Any) -> int:
     return 0
 
 
+def list_cached_audio_parts() -> List[List[str]]:
+    """Return every cached clip path as path-parts.
+
+    Each item includes the root key (usually ``audio_files``), followed by
+    optional sub-directory names and the clip filename without extension.
+    """
+    parts_list: List[List[str]] = []
+
+    def _walk(node: Any, prefix: List[str]) -> None:
+        if isinstance(node, list):
+            parts_list.append(prefix.copy())
+            return
+        if isinstance(node, dict):
+            for key in sorted(node):
+                _walk(node[key], prefix + [key])
+
+    for root_key in sorted(_AUDIO_CACHE):
+        _walk(_AUDIO_CACHE[root_key], [root_key])
+
+    return parts_list
+
+
 def load_audio_files() -> None:
     """Pre-load every mp3 under ``AUDIO_DIR`` (one level deep).
 

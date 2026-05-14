@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def _run_phase_intent(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_INTENT
+    await _speak(websocket, state, "account_names", "12345")
     await _speak(websocket, state, audio_const.GREET_UNKNOWN)
     text = await _listen(
         state,

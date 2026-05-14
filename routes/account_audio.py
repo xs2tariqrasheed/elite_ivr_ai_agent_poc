@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import config
+from services import agent_voice_service as voice
 from services.text_to_speech_service import TextToSpeechError, text_to_speech
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,16 @@ ACCOUNT_NAMES_SUBDIR = "account_names"
 class AccountNameAudioRequest(BaseModel):
     account_name: str = Field(..., min_length=1)
     account_number: str = Field(..., min_length=1)
+
+
+@router.get("/audio-cache")
+def list_audio_cache() -> dict:
+    """List all cached audio clips as path parts from ``AUDIO_DIR`` root."""
+    clip_parts = voice.list_cached_audio_parts()
+    return {
+        "count": len(clip_parts),
+        "clips": [{"parts": parts} for parts in clip_parts],
+    }
 
 
 @router.post("/account-name-audio")
