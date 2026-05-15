@@ -16,7 +16,7 @@ _DIGIT_WORDS = {
 }
 
 
-def _llm_generate(prompt: str) -> str:
+def _llm_generate(prompt: str, num_predict: int = 16) -> str:
     """Send a prompt to the model and return the (stripped) response."""
     client = get_ollama_client()
     resp = client.generate(
@@ -24,7 +24,7 @@ def _llm_generate(prompt: str) -> str:
         prompt=prompt,
         options={
             "temperature": 0,
-            "num_predict": 16,
+            "num_predict": num_predict,
         },
     )
     return (resp.get("response") or "").strip()
