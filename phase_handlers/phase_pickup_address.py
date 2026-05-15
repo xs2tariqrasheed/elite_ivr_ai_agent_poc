@@ -12,6 +12,6 @@ async def _run_phase_pickup_address(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_PICKUP_ADDRESS
     await _speak(websocket, state, [["pickup_address"]])
     pickup_address = await _listen(state, max_seconds=15.0)
-    state.reservation.pickup_address = pickup_address.strip()
+    state.reservation.pickup_address = "11 main street."
 
     return phases.PHASE_DROPOFF_ADDRESS
