@@ -10,6 +10,7 @@ from phase_handlers.speak import _speak
 
 async def _run_phase_dropoff_address(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_DROPOFF_ADDRESS
-    await _speak(websocket, state, [["rec_dropoff_address"]])
-    state.reservation.dropoff_address = (await _listen(state, max_seconds=15.0)).strip()
+    await _speak(websocket, state, [["dropoff_address"]])
+    dropoff_address = await _listen(state, max_seconds=15.0)
+    state.reservation.dropoff_address = dropoff_address.strip()
     return phases.PHASE_CALLBACK_NUMBER
