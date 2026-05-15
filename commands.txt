@@ -158,9 +158,9 @@ cd /Users/tariqrasheed/workspace/elite/ivr_poc/elite_ai_ivr_agent_poc
 
 python -c "
 from datetime import datetime
-from services.llm.pickup_date_time import extract_pickup_date_time
+from services.llm.pickup_date_time import extract_pickup_date_time_openai
 
-d, t = extract_pickup_date_time(
+d, t = extract_pickup_date_time_openai(
     'tomorrow at five pm',
     datetime(2026, 5, 15),
 )

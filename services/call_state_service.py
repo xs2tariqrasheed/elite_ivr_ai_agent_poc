@@ -9,7 +9,7 @@ buffered.
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from constants.call_phases import PHASE_START
 
@@ -70,6 +70,9 @@ class CallState:
 
     # Per-phase retry counters
     attempts: Dict[str, int] = field(default_factory=dict)
+
+    # Fire-and-forget asyncio tasks (e.g. LLM fallbacks) kept alive until done.
+    _background_tasks: Set[Any] = field(default_factory=set)
 
     # Set by the WebSocket loop when Twilio echoes a ``mark`` event.
     _mark_event: threading.Event = field(default_factory=threading.Event)

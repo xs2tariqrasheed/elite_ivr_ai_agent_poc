@@ -10,13 +10,14 @@ from .account_number import extract_account_number
 from .intent import classify_intent
 from .llm_client import get_ollama_client
 from .phone_number import extract_phone_number
-from .pickup_date_time import extract_pickup_date_time
+from .pickup_date_time import extract_pickup_date_time, extract_pickup_date_time_openai
 from .warm_up import warm_up_model
 
 __all__ = [
     "extract_account_number",
     "extract_phone_number",
     "extract_pickup_date_time",
+    "extract_pickup_date_time_openai",
     "classify_intent",
     "warm_up_model",
     "get_ollama_client",
