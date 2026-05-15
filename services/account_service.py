@@ -35,6 +35,7 @@ def _account_to_dict(account: Account) -> Dict:
         "name": account.name,
         "cid": account.cid,
         "phone": account.phone,
+        "email": account.email,
     }
 
 
@@ -103,6 +104,7 @@ def create_account(
     name: str,
     cid: Optional[str] = None,
     phone: Optional[str] = None,
+    email: Optional[str] = None,
     db: Optional[Session] = None,
 ) -> Account:
     """Create a new account.
@@ -116,6 +118,7 @@ def create_account(
             name=name,
             cid=cid,
             phone=phone,
+            email=email,
         )
         session.add(account)
         try:
@@ -145,6 +148,7 @@ def update_account(
     name: Optional[str] = None,
     cid: Optional[str] = None,
     phone: Optional[str] = None,
+    email: Optional[str] = None,
     db: Optional[Session] = None,
 ) -> Account:
     """Update fields on an existing account. Only provided fields are changed."""
@@ -158,6 +162,8 @@ def update_account(
             account.cid = cid
         if phone is not None:
             account.phone = phone
+        if email is not None:
+            account.email = email
         try:
             session.flush()
         except IntegrityError as exc:

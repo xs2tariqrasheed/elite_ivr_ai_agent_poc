@@ -18,6 +18,7 @@ class Account(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     cid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
 
     reservations: Mapped[List["Reservation"]] = relationship(
         "Reservation",
