@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import uuid
+from io import BytesIO
 from typing import Any, Dict, List, Optional, Sequence
 
 from pydub import AudioSegment
@@ -50,9 +51,9 @@ def _audio_root_key() -> str:
     return os.path.basename(os.path.normpath(config.AUDIO_DIR)) or "audio_files"
 
 
-def _mp3_to_mulaw_frames(path: str) -> List[str]:
-    """Decode an mp3 file to base64-encoded mu-law @ 8 kHz frames."""
-    seg = AudioSegment.from_file(path, format="mp3")
+def _mp3_bytes_to_mulaw_frames(mp3_bytes: bytes) -> List[str]:
+    """Decode in-memory mp3 bytes to base64-encoded mu-law @ 8 kHz frames."""
+    seg = AudioSegment.from_file(BytesIO(mp3_bytes), format="mp3")
     # Force mono, 8 kHz, 16-bit PCM
     seg = seg.set_channels(1).set_frame_rate(8000).set_sample_width(2)
     pcm16 = seg.raw_data
@@ -66,6 +67,34 @@ def _mp3_to_mulaw_frames(path: str) -> List[str]:
             chunk = chunk + (b"\xff" * (_FRAME_BYTES - len(chunk)))
         frames.append(base64.b64encode(chunk).decode("ascii"))
     return frames
+
+
+def _mp3_to_mulaw_frames(path: str) -> List[str]:
+    """Decode an mp3 file to base64-encoded mu-law @ 8 kHz frames."""
+    with open(path, "rb") as f:
+        return _mp3_bytes_to_mulaw_frames(f.read())
+
+
+def cache_clip(cache_key: str, mp3_bytes: bytes) -> None:
+    """Decode ``mp3_bytes`` and store the frames in the in-memory cache.
+
+    After this returns, the clip is reachable via ``_frames_for(cache_key)``
+    and playable through ``play_audio(..., [[cache_key]])`` (i.e. as a single
+    path segment at the cache root).
+    """
+    if not cache_key:
+        raise ValueError("cache_key must not be empty")
+
+    root_key = _audio_root_key()
+    root = _AUDIO_CACHE.setdefault(root_key, {})
+    if isinstance(root.get(cache_key), dict):
+        raise ValueError(
+            f"Audio name conflict: '{cache_key}' exists as a directory in the cache"
+        )
+
+    frames = _mp3_bytes_to_mulaw_frames(mp3_bytes)
+    root[cache_key] = frames
+    logger.info("Cached in-memory clip %s (%d frames)", cache_key, len(frames))
 
 
 def _load_audio_tree(dir_path: str) -> Dict[str, Any]:
