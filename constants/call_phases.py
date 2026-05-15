@@ -6,7 +6,7 @@ the original specification.
 
 # Phase identifiers (kept as plain strings so they can be logged/serialised
 # easily without enum unwrapping).
-PHASE_ACCOUNT_NUMBER = "start"
+PHASE_START = "start"
 PHASE_INTENT = "phase_1_intent"
 PHASE_ACCOUNT_NUMBER = "phase_2_account_number"
 PHASE_ACCOUNT_NAME = "phase_3_account_name"
@@ -27,6 +27,7 @@ PHASE_EMAIL_CONFIRMATION = "phase_email_confirmation"
 # Linear ordering of the happy-path phases. The phase manager uses this
 # to drive the call from one phase to the next when a phase succeeds.
 PHASE_ORDER = [
+    PHASE_START,
     PHASE_INTENT,
     PHASE_PASSENGER_INFO_VERIFICATION,
     PHASE_ACCOUNT_NUMBER,
@@ -36,7 +37,6 @@ PHASE_ORDER = [
     PHASE_PICKUP_DATE_TIME,
     PHASE_PICKUP_ADDRESS,
     PHASE_DROPOFF_ADDRESS,
-    PHASE_EMAIL_CONFIRMATION,
     PHASE_CALLBACK_NUMBER,
     PHASE_EMAIL,
     PHASE_END,
