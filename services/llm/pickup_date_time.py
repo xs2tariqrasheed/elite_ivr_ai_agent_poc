@@ -5,9 +5,23 @@ import re
 from datetime import datetime
 from typing import Optional, Tuple
 
+import config
+
 from ._helpers import _llm_generate
 
 logger = logging.getLogger(__name__)
+
+_openai_client = None
+
+
+def _get_openai_client():
+    """Lazily build and cache the OpenAI client."""
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+
+        _openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
+    return _openai_client
 
 
 _DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
@@ -127,6 +141,71 @@ def extract_pickup_date_time(
     date, time = _parse_llm_response(raw)
     logger.info(
         "Extracted pickup date/time: date=%s time=%s (from %r)",
+        date,
+        time,
+        text,
+    )
+    return date, time
+
+
+def extract_pickup_date_time_openai(
+    text: str, today: Optional[datetime] = None
+) -> Tuple[Optional[str], Optional[str]]:
+    """Extract a pickup date and time from a spoken sentence using OpenAI.
+
+    Same contract as :func:`extract_pickup_date_time` but routes the
+    prompt through the OpenAI Chat Completions API instead of Ollama.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None, None
+
+    today = today or datetime.now()
+    today_str = today.strftime("%Y-%m-%d")
+    weekday = today.strftime("%A")
+
+    prompt = (
+        "You are an information extraction assistant for a phone-call IVR "
+        "system. The caller was asked for the pickup date and time of "
+        "their reservation. The sentence below is the speech-to-text "
+        "transcript of their reply. The date and time may appear in any "
+        "order and any format (e.g. \"tomorrow at 5pm\", \"June 3rd 14:30\", "
+        "\"next Monday morning at nine thirty\", \"5 PM on the 12th\"). "
+        "The transcript may contain only a date, only a time, or both. "
+        "It may contain speech-to-text errors.\n\n"
+        f"Today is {today_str} ({weekday}). Resolve relative references "
+        "(today, tomorrow, tonight, next Monday, etc.) against this date. "
+        "If the caller says just a time with no date, assume today if the "
+        "time hasn't passed yet, otherwise tomorrow. If the caller gives "
+        "an AM/PM hint, convert to 24-hour time. If a part is missing or "
+        "unclear, emit null for that field.\n\n"
+        "Respond with ONLY a single JSON object on one line, no prose, no "
+        "code fences, with exactly these two keys: \"date\" (string in "
+        "YYYY-MM-DD format or null) and \"time\" (string in HH:MM:SS "
+        "24-hour format or null).\n\n"
+        f"Sentence: {text}\n"
+        "Answer:"
+    )
+
+    raw = ""
+    try:
+        client = _get_openai_client()
+        completion = client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=64,
+            response_format={"type": "json_object"},
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+    except Exception:
+        logger.exception("OpenAI call failed for pickup date/time extraction")
+
+    logger.debug("OpenAI pickup date/time raw response: %r", raw)
+
+    date, time = _parse_llm_response(raw)
+    logger.info(
+        "Extracted pickup date/time (openai): date=%s time=%s (from %r)",
         date,
         time,
         text,
