@@ -21,6 +21,10 @@ PUBLIC_BASE_URL = _get("PUBLIC_BASE_URL")
 OLLAMA_HOST = _get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = _get("OLLAMA_MODEL", "qwen2.5:1.5b")
 
+# OpenAI
+OPENAI_API_KEY = _get("OPENAI_API_KEY")
+OPENAI_MODEL = _get("OPENAI_MODEL", "gpt-4o-mini")
+
 # fastText intent
 INTENT_MODEL_PATH = _get("INTENT_MODEL_PATH", "intent_model.bin")
 INTENT_CONFIDENCE_THRESHOLD = float(_get("INTENT_CONFIDENCE_THRESHOLD", "0.6"))
