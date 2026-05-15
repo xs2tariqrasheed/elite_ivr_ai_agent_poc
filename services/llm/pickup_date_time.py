@@ -92,7 +92,7 @@ def extract_pickup_date_time(
     today = today or datetime.now()
     today_str = today.strftime("%Y-%m-%d")
     weekday = today.strftime("%A")
-
+        
     prompt = (
         "You are an information extraction assistant for a phone-call IVR "
         "system. The caller was asked for the pickup date and time of "

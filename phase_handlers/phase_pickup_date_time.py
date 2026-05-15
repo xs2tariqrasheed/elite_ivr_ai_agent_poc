@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 async def _run_phase_pickup_date_time(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_PICKUP_DATE_TIME
-    await _speak(websocket, state, [["rec_pickup_date_time"]])
+    await _speak(websocket, state, [["pickup_date_time"]])
     text = (await _listen(state, max_seconds=15.0)).strip()
 
     date, time = await asyncio.to_thread(llm.extract_pickup_date_time, text)
@@ -29,5 +29,4 @@ async def _run_phase_pickup_date_time(websocket: WebSocket, state) -> str:
         time,
         text,
     )
-
     return phases.PHASE_PICKUP_ADDRESS

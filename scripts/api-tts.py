@@ -45,9 +45,12 @@ NAME = (
     "[asking] John Snow ?"
 )
 
+PROMPT_FOR_PICKUP_DATE_TIME = "[politely] Okay, What is the pickup date and time for this reservation?"
+
+
 DEFAULT_URL = "http://localhost:8000/gen-audio"
 
-message_to_say = VERIFY_SAMPLE
+message_to_say = PROMPT_FOR_PICKUP_DATE_TIME
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--file-name",
-        default="verify_sample.mp3",
+        default="pickup_date_time.mp3",
         help="File name to save the audio to.",
     )
     parser.add_argument(

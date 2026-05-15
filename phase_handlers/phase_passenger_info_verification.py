@@ -54,7 +54,7 @@ async def _run_phase_passenger_info_verification(websocket: WebSocket, state) ->
     if _NO_PATTERN.search(text):
         return phases.PHASE_HANGUP
     if _YES_PATTERN.search(text):
-        return phases.PHASE_ACCOUNT_NUMBER
+        return phases.PHASE_PICKUP_DATE_TIME
 
     # Unclear response — default to hanging up rather than guessing.
     logger.info(

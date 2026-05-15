@@ -152,3 +152,17 @@ Make a new migration after you change db/models.py:
 alembic revision --autogenerate -m "describe the change"
 
 git worktree remove .claude/worktrees/gracious-merkle-693e12
+
+
+cd /Users/tariqrasheed/workspace/elite/ivr_poc/elite_ai_ivr_agent_poc
+
+python -c "
+from datetime import datetime
+from services.llm.pickup_date_time import extract_pickup_date_time
+
+d, t = extract_pickup_date_time(
+    'tomorrow at five pm',
+    datetime(2026, 5, 15),
+)
+print('date:', d, 'time:', t)
+"
