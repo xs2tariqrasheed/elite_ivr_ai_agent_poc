@@ -1,29 +1,17 @@
 """Phase: verify the passenger info read back to the caller (yes/no)."""
 
 import logging
-import re
 
 from fastapi import WebSocket
 
 from constants import call_phases as phases
+from utils.misc import detect_yes_no
 
 from phase_handlers.listen import _listen
 from phase_handlers.speak import _speak
 
 
 logger = logging.getLogger(__name__)
-
-
-_YES_PATTERN = re.compile(
-    r"\b(yes|yeah|yep|yup|correct|right|sure|affirmative|"
-    r"absolutely|of course|that's right|thats right|ok|okay|confirm|confirmed)\b",
-    re.IGNORECASE,
-)
-_NO_PATTERN = re.compile(
-    r"\b(no|nope|nah|negative|incorrect|wrong|"
-    r"that's wrong|thats wrong|not right|don't|dont)\b",
-    re.IGNORECASE,
-)
 
 
 async def _run_phase_passenger_info_verification(websocket: WebSocket, state) -> str:
@@ -51,9 +39,10 @@ async def _run_phase_passenger_info_verification(websocket: WebSocket, state) ->
 
     logger.info("passenger_info_verification: caller said %r", text)
 
-    if _NO_PATTERN.search(text):
+    answer = detect_yes_no(text)
+    if answer is False:
         return phases.PHASE_HANGUP
-    if _YES_PATTERN.search(text):
+    if answer is True:
         return phases.PHASE_PICKUP_DATE_TIME
 
     # Unclear response — default to hanging up rather than guessing.

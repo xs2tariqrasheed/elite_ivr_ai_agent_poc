@@ -76,6 +76,9 @@ def _build_phase_handlers() -> dict:
     from phase_handlers.phase_pickup_date_time import _run_phase_pickup_date_time
     from phase_handlers.phase_pickup_address import _run_phase_pickup_address
     from phase_handlers.phase_dropoff_address import _run_phase_dropoff_address
+    from phase_handlers.phase_email_confirmation import (
+        _run_phase_email_confirmation,
+    )
     from phase_handlers.phase_callback_number import _run_phase_callback_number
     from phase_handlers.phase_email import _run_phase_email
     from phase_handlers.phase_end import _run_phase_end
@@ -90,6 +93,7 @@ def _build_phase_handlers() -> dict:
         phases.PHASE_PICKUP_DATE_TIME: _run_phase_pickup_date_time,
         phases.PHASE_PICKUP_ADDRESS: _run_phase_pickup_address,
         phases.PHASE_DROPOFF_ADDRESS: _run_phase_dropoff_address,
+        phases.PHASE_EMAIL_CONFIRMATION: _run_phase_email_confirmation,
         phases.PHASE_CALLBACK_NUMBER: _run_phase_callback_number,
         phases.PHASE_EMAIL: _run_phase_email,
         phases.PHASE_END: _run_phase_end,
