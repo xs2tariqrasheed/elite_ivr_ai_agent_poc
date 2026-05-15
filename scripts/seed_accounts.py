@@ -38,16 +38,16 @@ logger = logging.getLogger("seed_accounts")
 # 10 sample accounts. First four mirror the legacy dummy_data.json so the IVR
 # flow keeps recognising the same account numbers used in dev.
 SEED_ACCOUNTS: List[Dict[str, str]] = [
-    {"account_number": "5678", "name": "Beta Industries",   "cid": "CID-5678", "phone": "+1-555-0202"},
-    {"account_number": "9012", "name": "Gamma Holdings",    "cid": "CID-9012", "phone": "+1-555-0303"},
-    {"account_number": "3456", "name": "Delta Labs",        "cid": "CID-3456", "phone": "+1-555-0404"},
-    {"account_number": "7890", "name": "Epsilon Partners",  "cid": "CID-7890", "phone": "+1-555-0505"},
-    {"account_number": "1234", "name": "Alpha Corp",        "cid": "CID-1234", "phone": "+1-555-0101"},
-    {"account_number": "2468", "name": "Zeta Logistics",    "cid": "CID-2468", "phone": "+1-555-0606"},
-    {"account_number": "1357", "name": "Eta Ventures",      "cid": "CID-1357", "phone": "+1-555-0707"},
-    {"account_number": "8642", "name": "Theta Group",       "cid": "CID-8642", "phone": "+1-555-0808"},
-    {"account_number": "9753", "name": "Iota Capital",      "cid": "CID-9753", "phone": "+1-555-0909"},
-    {"account_number": "1122", "name": "Kappa Travel Co.",  "cid": "CID-1122", "phone": "+1-555-1010"},
+    {"account_number": "5678", "name": "Beta Industries",   "cid": "CID-5678", "phone": "+1-555-0202", "email": "contact@beta-industries.example.com"},
+    {"account_number": "9012", "name": "Gamma Holdings",    "cid": "CID-9012", "phone": "+1-555-0303", "email": "hello@gamma-holdings.example.com"},
+    {"account_number": "3456", "name": "Delta Labs",        "cid": "CID-3456", "phone": "+1-555-0404", "email": "team@delta-labs.example.com"},
+    {"account_number": "7890", "name": "Epsilon Partners",  "cid": "CID-7890", "phone": "+1-555-0505", "email": "info@epsilon-partners.example.com"},
+    {"account_number": "1234", "name": "Alpha Corp",        "cid": "CID-1234", "phone": "+1-555-0101", "email": "ops@alpha-corp.example.com"},
+    {"account_number": "2468", "name": "Zeta Logistics",    "cid": "CID-2468", "phone": "+1-555-0606", "email": "dispatch@zeta-logistics.example.com"},
+    {"account_number": "1357", "name": "Eta Ventures",      "cid": "CID-1357", "phone": "+1-555-0707", "email": "hi@eta-ventures.example.com"},
+    {"account_number": "8642", "name": "Theta Group",       "cid": "CID-8642", "phone": "+1-555-0808", "email": "support@theta-group.example.com"},
+    {"account_number": "9753", "name": "Iota Capital",      "cid": "CID-9753", "phone": "+1-555-0909", "email": "desk@iota-capital.example.com"},
+    {"account_number": "1122", "name": "Kappa Travel Co.",  "cid": "CID-1122", "phone": "+1-555-1010", "email": "bookings@kappa-travel.example.com"},
 ]
 
 
@@ -80,6 +80,7 @@ def seed() -> None:
                     name=row["name"],
                     cid=row["cid"],
                     phone=row["phone"],
+                    email=row["email"],
                 )
                 logger.info("UPDATED  id=%s account_number=%s name=%s",
                             existing.id, existing.account_number, row["name"])
