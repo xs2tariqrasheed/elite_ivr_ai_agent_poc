@@ -67,6 +67,9 @@ def _build_phase_handlers() -> dict:
     package load time.
     """
     from phase_handlers.phase_intent import _run_phase_intent
+    from phase_handlers.phase_passenger_info_verification import (
+        _run_phase_passenger_info_verification,
+    )
     from phase_handlers.phase_account_number import _run_phase_account_number
     from phase_handlers.phase_account_name import _run_phase_account_name
     from phase_handlers.phase_first_name import _run_phase_first_name
@@ -80,6 +83,7 @@ def _build_phase_handlers() -> dict:
 
     return {
         phases.PHASE_INTENT: _run_phase_intent,
+        phases.PHASE_PASSENGER_INFO_VERIFICATION: _run_phase_passenger_info_verification,
         phases.PHASE_ACCOUNT_NUMBER: _run_phase_account_number,
         phases.PHASE_ACCOUNT_NAME: _run_phase_account_name,
         phases.PHASE_FIRST_NAME: _run_phase_first_name,
