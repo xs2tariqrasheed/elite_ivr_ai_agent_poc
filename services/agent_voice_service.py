@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 # interior nodes are sub-directories keyed by directory name.
 _AUDIO_CACHE: Dict[str, Any] = {}
 
+# Clips added at runtime via ``cache_clip`` (e.g. from the in-memory TTS
+# service). Tracked separately so ``load_audio_files`` can re-apply them
+# after rebuilding the on-disk tree.
+_IN_MEMORY_CLIPS: Dict[str, List[str]] = {}
+
 # Twilio expects 20 ms frames @ 8 kHz, so 160 bytes of mu-law per frame.
 _FRAME_BYTES = 160
 
@@ -94,6 +99,7 @@ def cache_clip(cache_key: str, mp3_bytes: bytes) -> None:
 
     frames = _mp3_bytes_to_mulaw_frames(mp3_bytes)
     root[cache_key] = frames
+    _IN_MEMORY_CLIPS[cache_key] = frames
     logger.info("Cached in-memory clip %s (%d frames)", cache_key, len(frames))
 
 
@@ -169,6 +175,15 @@ def load_audio_files() -> None:
         raise FileNotFoundError(f"AUDIO_DIR does not exist: {audio_dir}")
 
     root_cache = _load_audio_tree(audio_dir)
+
+    for cache_key, frames in _IN_MEMORY_CLIPS.items():
+        if isinstance(root_cache.get(cache_key), dict):
+            logger.warning(
+                "In-memory clip '%s' conflicts with on-disk directory; dropping in-memory entry",
+                cache_key,
+            )
+            continue
+        root_cache[cache_key] = frames
 
     _AUDIO_CACHE.clear()
     _AUDIO_CACHE[_audio_root_key()] = root_cache
