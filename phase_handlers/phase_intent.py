@@ -41,7 +41,7 @@ async def _run_phase_intent(websocket: WebSocket, state) -> str:
     logger.info(f"***** classify_with_threshold: {predict_time}")
 
     if label == intent.INTENT_NEW_RESERVATION:
-        return phases.PHASE_ACCOUNT_NUMBER
+        return phases.PHASE_PASSENGER_INFO_VERIFICATION
 
     # "other" intent — apologise and hang up
     await _speak(websocket, state, [[audio_const.OTHER_INTENT]])

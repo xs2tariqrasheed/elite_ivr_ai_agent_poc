@@ -25,10 +25,16 @@ PROMPT_ACCOUNT_NOT_FOUND = (
     "[reassuring] Let me connect you to the customer service desk."
 )
 
+PHONE_NUMBER = "[asking] 1-555-0404 ?"
+
+VERIFY_PASSENGER_INFO = (
+    "[politely] Thanks for the new reservation."
+    "[asking] Would this reservation be for John Smith with call back number ..."
+)
 
 DEFAULT_URL = "http://localhost:8000/gen-audio"
 
-message_to_say = PROMPT_ACCOUNT_NOT_FOUND
+message_to_say = VERIFY_PASSENGER_INFO
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--file-name",
-        default="account_not_found.mp3",
+        default="verify_passenger_info.mp3",
         help="File name to save the audio to.",
     )
     parser.add_argument(

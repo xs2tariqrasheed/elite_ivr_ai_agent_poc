@@ -20,11 +20,14 @@ PHASE_EMAIL = "phase_10_email"
 PHASE_END = "phase_11_end"
 PHASE_HANGUP = "hangup"
 
+PHASE_PASSENGER_INFO_VERIFICATION = "phase_2_passenger_info_verification"
+
 
 # Linear ordering of the happy-path phases. The phase manager uses this
 # to drive the call from one phase to the next when a phase succeeds.
 PHASE_ORDER = [
     PHASE_INTENT,
+    PHASE_PASSENGER_INFO_VERIFICATION,
     PHASE_ACCOUNT_NUMBER,
     PHASE_ACCOUNT_NAME,
     PHASE_FIRST_NAME,

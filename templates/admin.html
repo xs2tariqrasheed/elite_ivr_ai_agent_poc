@@ -202,11 +202,10 @@
     <div class="wrap">
       <header>
         <h1>{{ title }}</h1>
-        <p class="subtitle">Trigger backend APIs from a friendly UI.</p>
       </header>
 
       <section class="card">
-        <h2>Generate known-caller greeting audio</h2>
+        <h2>Update name for known-caller greeting audio</h2>
         <p class="hint">
           Synthesizes a personalized "Hi &lt;name&gt;" clip and saves it under the
           caller's account. Accepts an account number or phone.
@@ -235,8 +234,7 @@
 
           <div class="field">
             <div class="label-row">
-              <label for="account">Account or phone</label>
-              <span class="help">Account number or E.164 phone</span>
+              <label for="account">Phone</label>
             </div>
             <input
               type="text"
@@ -248,7 +246,7 @@
           </div>
 
           <div class="actions">
-            <button type="submit" id="submit-btn">Generate audio</button>
+            <button type="submit" id="submit-btn">Submit</button>
             <button type="button" id="reset-btn" class="secondary">Reset</button>
           </div>
 
@@ -295,8 +293,8 @@
           nameInput.disabled = loading;
           accountInput.disabled = loading;
           submitBtn.innerHTML = loading
-            ? '<span class="spinner"></span>Generating…'
-            : "Generate audio";
+            ? '<span class="spinner"></span>Submitting…'
+            : "Submit";
         }
 
         resetBtn.addEventListener("click", function () {
@@ -338,8 +336,8 @@
             } else {
               showAlert(
                 "success",
-                "Audio generated",
-                'Saved clip for "' + name + '" on account ' + account + "."
+                "Name is updated",
+                'for "' + name + '" on account ' + account + "."
               );
             }
           } catch (err) {
