@@ -27,8 +27,8 @@ async def _speak(
     ``clips`` is a list of clip paths, where each clip path is itself a
     list of directory-walk segments relative to ``AUDIO_DIR``::
 
-        await _speak(ws, state, [[audio_const.ACCOUNT_NAME]])
-        await _speak(ws, state, [["account_names", "12345"], [audio_const.GREET_UNKNOWN]])
+        await _speak(ws, state, [["rec_account_name"]])
+        await _speak(ws, state, [["account_names", "12345"], ["rec_greet_unknown"]])
 
     All clips are concatenated into a single stream of frames and sent
     to Twilio as one unit followed by a single mark event, so this

@@ -6,7 +6,6 @@ import time
 
 from fastapi import WebSocket
 
-from constants import audio_files as audio_const
 from constants import call_phases as phases
 from services import account_service
 from services import llm
@@ -25,9 +24,9 @@ async def _run_phase_account_number(websocket: WebSocket, state) -> str:
 
     for attempt in (1, 2):  # one initial try, one retry
         clip = (
-            audio_const.ACCOUNT_NUMBER
+            "rec_account_number"
             if attempt == 1
-            else audio_const.ACCOUNT_NUMBER_RETRY
+            else "rec_account_number_retry"
         )
         await _speak(websocket, state, [[clip]])
         text = await _listen(
@@ -57,7 +56,7 @@ async def _run_phase_account_number(websocket: WebSocket, state) -> str:
         record = account_service.find_account_by_number(account_number)
         if record is None:
             logger.info("account_number: %s not found in dummy data", account_number)
-            await _speak(websocket, state, [[audio_const.ACCOUNT_NOT_FOUND]])
+            await _speak(websocket, state, [["rec_account_not_found"]])
             return phases.PHASE_HANGUP
 
         # Success
@@ -67,5 +66,5 @@ async def _run_phase_account_number(websocket: WebSocket, state) -> str:
 
     # Two failed attempts
     logger.info("account_number: exhausted retries — hanging up")
-    await _speak(websocket, state, [[audio_const.ACCOUNT_NOT_FOUND]])
+    await _speak(websocket, state, [["rec_account_not_found"]])
     return phases.PHASE_HANGUP

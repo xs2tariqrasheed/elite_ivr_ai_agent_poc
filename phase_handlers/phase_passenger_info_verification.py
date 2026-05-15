@@ -5,7 +5,6 @@ import re
 
 from fastapi import WebSocket
 
-from constants import audio_files as audio_const
 from constants import call_phases as phases
 
 from phase_handlers.listen import _listen
@@ -27,12 +26,17 @@ _NO_PATTERN = re.compile(
 )
 
 
-async def _run_phase_passenger_info_verification(
-    websocket: WebSocket, state
-) -> str:
+async def _run_phase_passenger_info_verification(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_PASSENGER_INFO_VERIFICATION
 
-    await _speak(websocket, state, [[audio_const.VERIFY_PASSENGER_INFO]])
+    account_number = state.account_info.get("account_number")
+    await _speak(
+        websocket,
+        state,
+        [
+            ["verifications", account_number],
+        ],
+    )
     text = await _listen(
         state,
         initial_prompt=(

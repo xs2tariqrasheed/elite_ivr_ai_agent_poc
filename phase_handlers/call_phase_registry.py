@@ -23,7 +23,6 @@ from fastapi import WebSocket, WebSocketDisconnect
 from twilio.rest import Client as TwilioClient
 
 import config
-from constants import audio_files as audio_const
 from constants import call_phases as phases
 from services import agent_voice_service as voice
 from services import call_state_service
@@ -121,7 +120,7 @@ async def _run_call_flow(websocket: WebSocket, state) -> None:
                 state.caller_phone or "n/a",
             )
             await _speak(
-                websocket, state, [[audio_const.CALLER_ACCOUNT_NOT_FOUND]]
+                websocket, state, [["account_not_found"]]
             )
             return
 

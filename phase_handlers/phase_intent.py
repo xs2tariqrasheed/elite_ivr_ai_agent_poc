@@ -5,7 +5,6 @@ import time
 
 from fastapi import WebSocket
 
-from constants import audio_files as audio_const
 from constants import call_phases as phases
 from services import intent_service as intent
 
@@ -44,5 +43,5 @@ async def _run_phase_intent(websocket: WebSocket, state) -> str:
         return phases.PHASE_PASSENGER_INFO_VERIFICATION
 
     # "other" intent — apologise and hang up
-    await _speak(websocket, state, [[audio_const.OTHER_INTENT]])
+    await _speak(websocket, state, [["rec_other_intent"]])
     return phases.PHASE_HANGUP

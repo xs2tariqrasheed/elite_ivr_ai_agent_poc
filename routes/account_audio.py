@@ -58,6 +58,7 @@ def gen_audio(payload: GenAudioRequest) -> dict:
 
 
 KNOWN_GREET_SUBDIR = "known_greet_hi"
+VERIFICATIONS_SUBDIR = "verifications"
 
 
 class KnownGreetAudioRequest(BaseModel):
@@ -71,6 +72,10 @@ class KnownGreetAudioRequest(BaseModel):
 
 def get_known_greet_text(name: str) -> str:
     return f"[politely] Hi {name}. <break time='0.5s' />"
+
+
+def get_verifications_text(account_number: str, phone: str) -> str:
+    return f"[politely] Would this reservation be for {account_number} with call back number {phone} ?"
 
 
 @router.post("/known-greet-audio")
@@ -101,6 +106,25 @@ def create_known_greet_audio(payload: KnownGreetAudioRequest) -> str:
     file_name = os.path.join(KNOWN_GREET_SUBDIR, f"{account.account_number}.mp3")
     try:
         text_to_speech(get_known_greet_text(safe_name), file_name)
+    except TextToSpeechError as exc:
+        logger.exception("TTS failed for account %s", account.account_number)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # verifications
+    verification_file_name = os.path.join(
+        VERIFICATIONS_SUBDIR, f"{account.account_number}.mp3"
+    )
+    phone_without_country_code = account.phone.replace("+", "")
+    try:
+        text_to_speech(
+            (
+                "[politely] Thanks for the new reservation."
+                f"[asking] Would this reservation be for {safe_name} with call back number {phone_without_country_code} ?"
+            ),
+            verification_file_name,
+        )
     except TextToSpeechError as exc:
         logger.exception("TTS failed for account %s", account.account_number)
         raise HTTPException(status_code=502, detail=str(exc)) from exc

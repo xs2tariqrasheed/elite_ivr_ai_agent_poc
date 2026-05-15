@@ -4,7 +4,6 @@ import logging
 
 from fastapi import WebSocket
 
-from constants import audio_files as audio_const
 from constants import call_phases as phases
 
 from phase_handlers.speak import _speak
@@ -20,5 +19,5 @@ async def _run_phase_end(websocket: WebSocket, state) -> str:
         state.call_sid,
         state.reservation.as_summary_dict(),
     )
-    await _speak(websocket, state, [[audio_const.GOOD_BYE]])
+    await _speak(websocket, state, [["rec_good_bye"]])
     return phases.PHASE_HANGUP

@@ -25,16 +25,29 @@ PROMPT_ACCOUNT_NOT_FOUND = (
     "[reassuring] Let me connect you to the customer service desk."
 )
 
+VERIFY_SAMPLE = (
+    "[politely] Thanks for the new reservation."
+    "[asking] Would this reservation be for John Snow with call back number 923234251430 ?"
+)
+
 PHONE_NUMBER = "[asking] 1-555-0404 ?"
 
-VERIFY_PASSENGER_INFO = (
+VERIFY_PASSENGER_INFO_PART_1 = (
     "[politely] Thanks for the new reservation."
-    "[asking] Would this reservation be for John Smith with call back number ..."
+    "[asking] Would this reservation be for ..."
+)
+
+VERIFY_PASSENGER_INFO_PART_2 = (
+    "[asking] with call back number ..."
+)
+
+NAME = (
+    "[asking] John Snow ?"
 )
 
 DEFAULT_URL = "http://localhost:8000/gen-audio"
 
-message_to_say = VERIFY_PASSENGER_INFO
+message_to_say = VERIFY_SAMPLE
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--file-name",
-        default="verify_passenger_info.mp3",
+        default="verify_sample.mp3",
         help="File name to save the audio to.",
     )
     parser.add_argument(
