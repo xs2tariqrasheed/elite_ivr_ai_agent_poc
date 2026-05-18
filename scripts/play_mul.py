@@ -126,7 +126,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     clips = args.clips if args.clips else _DEFAULT_CLIPS
-    play_mul(clips)
+    play_mul(["my_runtime_clip"])
     return 0
 
 

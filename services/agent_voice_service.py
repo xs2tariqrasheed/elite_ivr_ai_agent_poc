@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import uuid
+import wave
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -100,6 +101,9 @@ def cache_clip(cache_key: str, mp3_bytes: bytes) -> None:
     frames = _mp3_bytes_to_mulaw_frames(mp3_bytes)
     root[cache_key] = frames
     _IN_MEMORY_CLIPS[cache_key] = frames
+    if "in_memory_only" not in _AUDIO_CACHE:
+        _AUDIO_CACHE["in_memory_only"] = {}
+    _AUDIO_CACHE["in_memory_only"][cache_key] = frames
     logger.info("Cached in-memory clip %s (%d frames)", cache_key, len(frames))
 
 
@@ -149,19 +153,36 @@ def list_cached_audio_parts() -> List[List[str]]:
 
     Each item includes the root key (usually ``audio_files``), followed by
     optional nested sub-directory names and the clip filename without extension.
+
+    Clips from ``cache_clip`` / ``text_to_speech_in_memory`` are included even
+    when they are not backed by an on-disk mp3 (tracked in ``_IN_MEMORY_CLIPS``).
     """
     parts_list: List[List[str]] = []
+    seen: set = set()
 
     def _walk(node: Any, prefix: List[str]) -> None:
         if isinstance(node, list):
-            parts_list.append(prefix.copy())
+            key = tuple(prefix)
+            if key not in seen:
+                parts_list.append(prefix.copy())
+                seen.add(key)
             return
         if isinstance(node, dict):
             for key in sorted(node):
                 _walk(node[key], prefix + [key])
 
-    for root_key in sorted(_AUDIO_CACHE):
-        _walk(_AUDIO_CACHE[root_key], [root_key])
+    root_key = _audio_root_key()
+    for cache_root_key in sorted(_AUDIO_CACHE):
+        if cache_root_key == "in_memory_only":
+            continue
+        _walk(_AUDIO_CACHE[cache_root_key], [cache_root_key])
+
+    for cache_key in sorted(_IN_MEMORY_CLIPS):
+        parts = [root_key, cache_key]
+        key = tuple(parts)
+        if key not in seen:
+            parts_list.append(parts)
+            seen.add(key)
 
     return parts_list
 
@@ -186,7 +207,10 @@ def load_audio_files() -> None:
         root_cache[cache_key] = frames
 
     _AUDIO_CACHE.clear()
-    _AUDIO_CACHE[_audio_root_key()] = root_cache
+    root_key = _audio_root_key()
+    _AUDIO_CACHE[root_key] = root_cache
+    if _IN_MEMORY_CLIPS:
+        _AUDIO_CACHE["in_memory_only"] = dict(_IN_MEMORY_CLIPS)
 
     total = _count_clips(root_cache)
     logger.info("Loaded %d audio clips", total)
@@ -218,6 +242,24 @@ def _frames_for(*audio_path: str) -> List[str]:
             f"Audio path resolves to a directory, not a clip: {'/'.join(audio_path)}"
         )
     return node
+
+
+def frames_to_wav_bytes(frames: Sequence[str]) -> bytes:
+    """Encode base64 mu-law @ 8 kHz frames as a mono 16-bit PCM WAV."""
+    mulaw = b"".join(base64.b64decode(frame) for frame in frames)
+    pcm16 = audioop.ulaw2lin(mulaw, 2)
+    buf = BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(8000)
+        wf.writeframes(pcm16)
+    return buf.getvalue()
+
+
+def clip_wav_bytes(*audio_path: str) -> bytes:
+    """Resolve a cache path to WAV bytes (for local playback or HTTP export)."""
+    return frames_to_wav_bytes(_frames_for(*audio_path))
 
 
 async def play_audio(

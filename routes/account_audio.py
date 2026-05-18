@@ -4,11 +4,16 @@ import logging
 import os
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from pydantic import AliasChoices, BaseModel, Field
 
 import config
 from services import account_service
 from services import agent_voice_service as voice
+from services.text_to_speech_in_memory_service import (
+    TextToSpeechError as InMemoryTextToSpeechError,
+    text_to_speech_in_memory,
+)
 from services.text_to_speech_service import TextToSpeechError, text_to_speech
 
 logger = logging.getLogger(__name__)
@@ -36,9 +41,39 @@ def list_audio_cache() -> dict:
     }
 
 
+@router.get("/audio-cache/clips/{clip_path:path}")
+def get_audio_cache_clip(clip_path: str) -> Response:
+    """Return a cached clip as WAV (path segments relative to ``AUDIO_DIR``)."""
+    parts = [p for p in clip_path.replace("\\", "/").split("/") if p]
+    root_key = os.path.basename(os.path.normpath(config.AUDIO_DIR)) or "audio_files"
+    if parts and parts[0] == root_key:
+        parts = parts[1:]
+    if not parts:
+        raise HTTPException(status_code=400, detail="clip path must not be empty")
+
+    try:
+        wav = voice.clip_wav_bytes(*parts)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return Response(content=wav, media_type="audio/wav")
+
+
 class GenAudioRequest(BaseModel):
     text: str = Field(..., min_length=1)
     file_name: str = Field(..., min_length=1)
+
+
+def _cache_key_from_file_name(file_name: str) -> str:
+    """Map a gen-audio-style file name to an in-memory cache key (no ``.mp3``)."""
+    key = file_name.strip().replace("\\", "/")
+    if key.lower().endswith(".mp3"):
+        key = key[:-4]
+    if not key:
+        raise ValueError("file_name must not be empty")
+    return key
 
 
 @router.post("/gen-audio")
@@ -53,6 +88,30 @@ def gen_audio(payload: GenAudioRequest) -> dict:
 
     return {
         "file_name": payload.file_name,
+        "text": payload.text,
+    }
+
+
+@router.post("/gen-audio-in-memory")
+def gen_audio_in_memory(payload: GenAudioRequest) -> dict:
+    """Synthesize TTS and cache in memory only (no file on disk)."""
+    try:
+        cache_key = _cache_key_from_file_name(payload.file_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        text_to_speech_in_memory(payload.text, cache_key)
+    except InMemoryTextToSpeechError as exc:
+        logger.exception("In-memory TTS failed for cache_key %s", cache_key)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    root_key = os.path.basename(os.path.normpath(config.AUDIO_DIR)) or "audio_files"
+    return {
+        "cache_key": cache_key,
+        "parts": [root_key, cache_key],
         "text": payload.text,
     }
 

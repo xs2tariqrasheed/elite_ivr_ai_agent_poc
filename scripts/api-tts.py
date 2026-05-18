@@ -50,9 +50,15 @@ EMAIL_CONFIRMATION = (
     "[asking] Is it okay?"
 )
 
+last_confirm_message = (
+        "[politely] Thanks. So here is what I have, Our sedan will pick up John Smith, on... Sunday April 15 at 11:00 am "
+        "[politely] from... 11 main street and drop off at... JFK Airport, terminal 4."
+        "[asking] Should I proceed and save this reservation? "   
+    )
+
 DEFAULT_URL = "http://localhost:8000/gen-audio"
 
-message_to_say = EMAIL_CONFIRMATION
+message_to_say = last_confirm_message
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--file-name",
-        default="email_confirmation.mp3",
+        default="test.mp3",
         help="File name to save the audio to.",
     )
     parser.add_argument(

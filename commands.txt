@@ -166,3 +166,15 @@ d, t = extract_pickup_date_time_openai(
 )
 print('date:', d, 'time:', t)
 "
+
+
+
+python -c "
+from services.text_to_speech_in_memory_service import text_to_speech_in_memory
+k = text_to_speech_in_memory('Hello, this is a quick TTS test.', 'cli_test_clip')
+print('cached as:', k)
+"
+
+curl -X POST http://localhost:8000/gen-audio-in-memory \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello from in-memory TTS", "file_name": "my_runtime_clip.mp3"}'
