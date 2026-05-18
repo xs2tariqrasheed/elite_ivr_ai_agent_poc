@@ -19,5 +19,9 @@ async def _run_phase_end(websocket: WebSocket, state) -> str:
         state.call_sid,
         state.reservation.as_summary_dict(),
     )
+    
+    # TODO: save reservation record in the database
+    
     await _speak(websocket, state, [["rec_good_bye"]])
+    
     return phases.PHASE_HANGUP
