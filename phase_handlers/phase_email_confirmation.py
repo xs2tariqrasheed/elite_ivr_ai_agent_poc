@@ -1,10 +1,12 @@
 """Phase: confirm with the caller whether to capture an email (yes/no)."""
 
+import asyncio
 import logging
 
 from fastapi import WebSocket
 
 from constants import call_phases as phases
+from services import llm
 from utils.misc import detect_yes_no
 
 from phase_handlers.listen import _listen
@@ -33,7 +35,10 @@ async def _run_phase_email_confirmation(websocket: WebSocket, state) -> str:
     logger.info("email_confirmation: caller said %r", text)
 
     answer = detect_yes_no(text)
-    if answer is False:
+    if answer is False or answer is None:
+        # try to use LLM to classify the response
+        answer = await asyncio.to_thread(llm.detect_yes_no_llm, text)
+    if answer is False or answer is None:
         return phases.PHASE_HANGUP
     if answer is True:
         return phases.PHASE_LAST_CONFIRMATION

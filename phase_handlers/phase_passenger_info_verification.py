@@ -1,5 +1,6 @@
 """Phase: verify the passenger info read back to the caller (yes/no)."""
 
+import asyncio
 import logging
 
 from fastapi import WebSocket
@@ -9,6 +10,7 @@ from utils.misc import detect_yes_no
 
 from phase_handlers.listen import _listen
 from phase_handlers.speak import _speak
+from services import llm
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,12 @@ async def _run_phase_passenger_info_verification(websocket: WebSocket, state) ->
     logger.info("passenger_info_verification: caller said %r", text)
 
     answer = detect_yes_no(text)
-    if answer is False:
+
+    if answer is False or answer is None:
+        # try to use LLM to classify the response
+        answer = await asyncio.to_thread(llm.detect_yes_no_llm, text)
+
+    if answer is False or answer is None:
         return phases.PHASE_HANGUP
     if answer is True:
         return phases.PHASE_PICKUP_DATE_TIME

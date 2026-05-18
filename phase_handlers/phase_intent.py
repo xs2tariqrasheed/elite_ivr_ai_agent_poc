@@ -44,6 +44,6 @@ async def _run_phase_intent(websocket: WebSocket, state) -> str:
     if label == intent.INTENT_NEW_RESERVATION:
         return phases.PHASE_PASSENGER_INFO_VERIFICATION
 
-    # "other" intent — apologise and hang up
+    # "other" intent — apologize and hang up
     await _speak(websocket, state, [["rec_other_intent"]])
     return phases.PHASE_HANGUP
