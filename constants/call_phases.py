@@ -22,6 +22,7 @@ PHASE_HANGUP = "hangup"
 
 PHASE_PASSENGER_INFO_VERIFICATION = "phase_2_passenger_info_verification"
 PHASE_EMAIL_CONFIRMATION = "phase_email_confirmation"
+PHASE_LAST_CONFIRMATION = "phase_last_confirmation"
 
 
 # Linear ordering of the happy-path phases. The phase manager uses this

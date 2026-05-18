@@ -81,6 +81,7 @@ def _build_phase_handlers() -> dict:
     )
     from phase_handlers.phase_callback_number import _run_phase_callback_number
     from phase_handlers.phase_email import _run_phase_email
+    from phase_handlers.phase_last_confirmation import _run_phase_last_confirmation
     from phase_handlers.phase_end import _run_phase_end
 
     return {
@@ -97,6 +98,7 @@ def _build_phase_handlers() -> dict:
         phases.PHASE_CALLBACK_NUMBER: _run_phase_callback_number,
         phases.PHASE_EMAIL: _run_phase_email,
         phases.PHASE_END: _run_phase_end,
+        phases.PHASE_LAST_CONFIRMATION: _run_phase_last_confirmation,
     }
 
 

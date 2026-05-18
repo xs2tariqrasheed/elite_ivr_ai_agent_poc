@@ -36,7 +36,7 @@ async def _run_phase_email_confirmation(websocket: WebSocket, state) -> str:
     if answer is False:
         return phases.PHASE_HANGUP
     if answer is True:
-        return phases.PHASE_CALLBACK_NUMBER
+        return phases.PHASE_LAST_CONFIRMATION
 
     logger.info(
         "email_confirmation: could not classify response %r — hanging up",
