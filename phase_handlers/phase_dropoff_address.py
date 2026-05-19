@@ -23,13 +23,15 @@ def _format_date_time(date: datetime or str) -> str:
         return date.strftime("%A %B %d")
     if isinstance(date, str):
         logger.info(f"date is string: {date}")
-        return datetime.strptime(date, "%Y-%m-%d")
+        return datetime.strptime(date, "%Y-%m-%d").strftime("%A %B %#d")
     return ""
 
 def _format_time(time: datetime or str) -> str:
     if isinstance(time, datetime):
+        logger.info(f"time is object: {time}")
         return time.strftime("%I:%M %p")
     if isinstance(time, str):
+        logger.info(f"time is string: {time}")
         return datetime.strptime(time, "%H:%M:%S").strftime("%I:%M %p")
     return ""
 
