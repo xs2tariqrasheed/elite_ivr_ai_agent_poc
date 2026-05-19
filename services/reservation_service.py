@@ -44,6 +44,7 @@ def create_reservation(
     pickup_time: Union[str, time, datetime],
     pickup_address: str,
     drop_off_address: str,
+    reservation_number: Optional[str] = None,
     db: Optional[Session] = None,
 ) -> Reservation:
     """Create a new reservation for an existing account.
@@ -59,6 +60,7 @@ def create_reservation(
 
         reservation = Reservation(
             account_id=account_id,
+            reservation_number=reservation_number,
             first_name=first_name,
             last_name=last_name,
             pickup_date=pd,
@@ -69,9 +71,10 @@ def create_reservation(
         session.add(reservation)
         session.flush()
         logger.info(
-            "Created reservation id=%s account_id=%s pickup=%s %s",
+            "Created reservation id=%s account_id=%s reservation_number=%s pickup=%s %s",
             reservation.id,
             account_id,
+            reservation_number,
             pd,
             pt,
         )
