@@ -53,7 +53,7 @@ async def _run_phase_intent(websocket: WebSocket, state) -> str:
     if label == intent.INTENT_NEW_RESERVATION:
         return phases.PHASE_PASSENGER_INFO_VERIFICATION
 
-    label = await asyncio.to_thread(llm.classify_intent, text)
+    label = await asyncio.to_thread(llm.classify_intent_openai, text)
     if label == intent.INTENT_NEW_RESERVATION:
         return phases.PHASE_PASSENGER_INFO_VERIFICATION
 

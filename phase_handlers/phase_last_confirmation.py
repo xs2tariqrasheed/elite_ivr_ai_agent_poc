@@ -25,7 +25,7 @@ async def _run_phase_last_confirmation(websocket: WebSocket, state) -> str:
 
     if answer is False or answer is None:
         # try to use LLM to classify the response
-        answer = await asyncio.to_thread(llm.detect_yes_no_llm, text)
+        answer = await asyncio.to_thread(llm.detect_yes_no_llm_openai, text)
 
     if answer is False or answer is None:
         return phases.PHASE_HANGUP
