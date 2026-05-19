@@ -1,9 +1,9 @@
 """Phase 11: log the reservation summary, say goodbye, and hang up."""
 
 import asyncio
-import datetime
 import logging
 
+from datetime import datetime
 from fastapi import WebSocket
 
 from constants import call_phases as phases
