@@ -3,6 +3,8 @@
 import asyncio
 import logging
 
+from datetime import datetime
+
 from fastapi import WebSocket
 
 from constants import call_phases as phases
@@ -21,13 +23,16 @@ async def _run_phase_dropoff_address(websocket: WebSocket, state) -> str:
     state.reservation.dropoff_address = "JFK Airport, terminal 4"
 
     name = state.account_info.get("name", "John Smith")
-    pickup_date = state.reservation.pickup_date
-    pickup_time = state.reservation.pickup_time
+    pickup_date = state.reservation.pickup_date  or datetime.now().date()
+    pickup_time = state.reservation.pickup_time or datetime.now().time()
     pickup_address = state.reservation.pickup_address
     dropoff_address = state.reservation.dropoff_address
+    
+    formatted_pickup_date = pickup_date.strftime("%A %B %d")
+    formatted_pickup_time = pickup_time.strftime("%I:%M %p")
 
     last_confirm_message = (
-        f"[politely] Thanks. So here is what I have, Our sedan will pick up {name}, on... {pickup_date} at {pickup_time} "
+        f"[politely] Thanks. So here is what I have, Our sedan will pick up {name}, on... {formatted_pickup_date} at {formatted_pickup_time} "
         f"[politely] from... {pickup_address} and drop off at... {dropoff_address}."
         "[asking] Should I proceed and save this reservation? "
     )
