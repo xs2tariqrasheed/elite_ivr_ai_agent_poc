@@ -42,7 +42,7 @@ async def _run_phase_end(websocket: WebSocket, state) -> str:
                     reservation = create_reservation(
                         account_id=account_id,
                         first_name=name,
-                        last_name="",
+                        last_name=r.reservation_number,
                         pickup_date=date,
                         pickup_time=time,
                         pickup_address=r.pickup_address,
@@ -60,6 +60,6 @@ async def _run_phase_end(websocket: WebSocket, state) -> str:
     except Exception:
         logger.exception("Failed to save reservation for call %s", state.call_sid)
 
-    await _speak(websocket, state, [["rec_good_bye"]])
+    await _speak(websocket, state, [["reservation_id_message"]])
 
     return phases.PHASE_HANGUP

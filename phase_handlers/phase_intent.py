@@ -1,7 +1,9 @@
 """Phase 1: greet the caller and classify their intent."""
 
-import logging
 import asyncio
+import logging
+import random
+import string
 
 from fastapi import WebSocket
 
@@ -16,9 +18,20 @@ from services import llm
 logger = logging.getLogger(__name__)
 
 
+def generate_random_reservation_number() -> str:
+    """Return a 6-character id: three uppercase letters then three digits (e.g. AJX123)."""
+    letters = "".join(random.choices(string.ascii_uppercase, k=3))
+    digits = "".join(random.choices(string.digits, k=3))
+
+    result = f"{letters}{digits}"
+    return result
+
+
 async def _run_phase_intent(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_INTENT
     account_number = state.account_info.get("account_number")
+    # generate a random 6-char reservation id (AAA###)
+    state.reservation.reservation_number = generate_random_reservation_number()
     await _speak(
         websocket,
         state,

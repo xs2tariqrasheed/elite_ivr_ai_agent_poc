@@ -40,9 +40,9 @@ class Reservation(Base):
         nullable=False,
         index=True,
     )
-    reservation_number: Mapped[Optional[str]] = mapped_column(
-        String(64), nullable=True, index=True
-    )
+    # reservation_number: Mapped[Optional[str]] = mapped_column(
+    #     String(64), nullable=True, index=True
+    # )
     first_name: Mapped[str] = mapped_column(String(128), nullable=False)
     last_name: Mapped[str] = mapped_column(String(128), nullable=False)
     pickup_date: Mapped[date] = mapped_column(Date, nullable=False)
