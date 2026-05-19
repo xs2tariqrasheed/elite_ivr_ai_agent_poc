@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-
+from datetime import datetime
 from fastapi import WebSocket
 
 from constants import call_phases as phases
@@ -20,10 +20,18 @@ async def _run_phase_pickup_date_time(websocket: WebSocket, state) -> str:
     await _speak(websocket, state, [["pickup_date_time"]])
     text = (await _listen(state, max_seconds=15.0)).strip()
 
-    date, time = await asyncio.to_thread(llm.extract_pickup_date_time, text)
+    today = datetime.now()
+
+    time_start = datetime.now()
+    date, time = await asyncio.to_thread(llm.extract_pickup_date_time, text, today)
+    time_end = datetime.now()
+    logger.info(
+        f"Time taken for extract_pickup_date_time: {time_end - time_start} seconds"
+    )
+
     state.reservation.pickup_date = date
     state.reservation.pickup_time = time
-    
+
     logger.info(
         "Captured pickup date/time: date=%s time=%s (from %r)",
         date,
@@ -31,6 +39,7 @@ async def _run_phase_pickup_date_time(websocket: WebSocket, state) -> str:
         text,
     )
 
+    time_start = datetime.now()
     if date is None and text:
         transcript = text
 
@@ -49,12 +58,15 @@ async def _run_phase_pickup_date_time(websocket: WebSocket, state) -> str:
                     state.reservation.pickup_time,
                 )
             except Exception:
-                logger.exception(
-                    "OpenAI async fallback failed for pickup date/time"
-                )
+                logger.exception("OpenAI async fallback failed for pickup date/time")
 
         task = asyncio.create_task(_apply_openai_fallback())
         state._background_tasks.add(task)
         task.add_done_callback(state._background_tasks.discard)
+
+    time_end = datetime.now()
+    logger.info(
+        f"Time taken for _apply_openai_fallback: {time_end - time_start} seconds"
+    )
 
     return phases.PHASE_PICKUP_ADDRESS
