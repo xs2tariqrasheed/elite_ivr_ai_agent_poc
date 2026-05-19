@@ -56,9 +56,14 @@ last_confirm_message = (
         "[asking] Should I proceed and save this reservation? "   
     )
 
+RESERVATION_ID_MESSAGE = (
+    "[politely] Thanks. You are all set. Your confirmation number A-J-X-1-2-3 will be mailed to your email address. "
+    "[politely] Thank you for calling Elite Limousine. Goodbye."
+)
+
 DEFAULT_URL = "http://localhost:8000/gen-audio"
 
-message_to_say = last_confirm_message
+message_to_say = RESERVATION_ID_MESSAGE
 
 
 def parse_args() -> argparse.Namespace:

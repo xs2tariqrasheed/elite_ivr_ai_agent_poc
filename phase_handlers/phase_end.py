@@ -1,5 +1,7 @@
 """Phase 11: log the reservation summary, say goodbye, and hang up."""
 
+import asyncio
+import datetime
 import logging
 
 from fastapi import WebSocket
@@ -23,6 +25,9 @@ async def _run_phase_end(websocket: WebSocket, state) -> str:
 
     try:
         account_id = (state.account_info or {}).get("id")
+        name = (state.account_info or {}).get("name")
+        date = state.reservation.pickup_date or datetime.now().date()
+        time = state.reservation.pickup_time or datetime.now().time()
         if account_id is None:
             logger.warning(
                 "Skipping reservation save for call %s: no account_id on state",
@@ -30,24 +35,30 @@ async def _run_phase_end(websocket: WebSocket, state) -> str:
             )
         else:
             r = state.reservation
-            reservation = create_reservation(
-                account_id=account_id,
-                first_name=r.first_name,
-                last_name=r.last_name,
-                pickup_date=r.pickup_date,
-                pickup_time=r.pickup_time,
-                pickup_address=r.pickup_address,
-                drop_off_address=r.dropoff_address,
-            )
-            logger.info(
-                "Saved reservation id=%s for call %s",
-                reservation.id,
-                state.call_sid,
-            )
+            call_sid = state.call_sid
+
+            def _save_reservation_in_background() -> None:
+                try:
+                    reservation = create_reservation(
+                        account_id=account_id,
+                        first_name=name,
+                        last_name="",
+                        pickup_date=date,
+                        pickup_time=time,
+                        pickup_address=r.pickup_address,
+                        drop_off_address=r.dropoff_address,
+                    )
+                    logger.info(
+                        "Saved reservation id=%s for call %s",
+                        reservation.id,
+                        call_sid,
+                    )
+                except Exception:
+                    logger.exception("Failed to save reservation for call %s", call_sid)
+
+            asyncio.create_task(asyncio.to_thread(_save_reservation_in_background))
     except Exception:
-        logger.exception(
-            "Failed to save reservation for call %s", state.call_sid
-        )
+        logger.exception("Failed to save reservation for call %s", state.call_sid)
 
     await _speak(websocket, state, [["rec_good_bye"]])
 
