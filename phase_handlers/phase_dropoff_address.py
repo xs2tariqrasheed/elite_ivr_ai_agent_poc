@@ -64,6 +64,8 @@ async def _run_phase_dropoff_address(websocket: WebSocket, state) -> str:
     )
 
     print(f"reservation_id_message: {reservation_id_message}")
+    
+    print(f"last_confirm_message: {last_confirm_message}")
 
     async def _prefetch_last_confirm_tts() -> None:
         try:
