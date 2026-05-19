@@ -16,6 +16,21 @@ from services.text_to_speech_in_memory_service import text_to_speech_in_memory
 logger = logging.getLogger(__name__)
 
 
+def _format_date_time(date: datetime or str) -> str:
+    
+    if isinstance(date, datetime):
+        return date.strftime("%A %B %d")
+    if isinstance(date, str):
+        return datetime.strptime(date, "%Y-%m-%d")
+    return ""
+
+def _format_time(time: datetime or str) -> str:
+    if isinstance(time, datetime):
+        return time.strftime("%I:%M %p")
+    if isinstance(time, str):
+        return datetime.strptime(time, "%H:%M:%S").strftime("%I:%M %p")
+    return ""
+
 async def _run_phase_dropoff_address(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_DROPOFF_ADDRESS
     await _speak(websocket, state, [["dropoff_address"]])
@@ -28,8 +43,11 @@ async def _run_phase_dropoff_address(websocket: WebSocket, state) -> str:
     pickup_address = state.reservation.pickup_address
     dropoff_address = state.reservation.dropoff_address
     
-    formatted_pickup_date = pickup_date.strftime("%A %B %d")
-    formatted_pickup_time = pickup_time.strftime("%I:%M %p")
+    formatted_pickup_date = _format_date_time(pickup_date)
+    formatted_pickup_time = _format_time(pickup_time)
+    
+    logger.info(f"formatted_pickup_date: {formatted_pickup_date}")
+    logger.info(f"formatted_pickup_time: {formatted_pickup_time}")
 
     last_confirm_message = (
         f"[politely] Thanks. So here is what I have, Our sedan will pick up {name}, on... {formatted_pickup_date} at {formatted_pickup_time} "
