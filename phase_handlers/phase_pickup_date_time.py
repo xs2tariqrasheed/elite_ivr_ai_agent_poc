@@ -20,26 +20,27 @@ async def _run_phase_pickup_date_time(websocket: WebSocket, state) -> str:
     await _speak(websocket, state, [["pickup_date_time"]])
     text = (await _listen(state, max_seconds=15.0)).strip()
 
-    today = datetime.now()
+    # today = datetime.now()
+
+    # time_start = datetime.now()
+    # date, time = await asyncio.to_thread(llm.extract_pickup_date_time, text, today)
+    # time_end = datetime.now()
+    # logger.info(
+    #     f"Time taken for extract_pickup_date_time: {time_end - time_start} seconds"
+    # )
+
+    # state.reservation.pickup_date = date
+    # state.reservation.pickup_time = time
+
+    # logger.info(
+    #     "Captured pickup date/time: date=%s time=%s (from %r)",
+    #     date,
+    #     time,
+    #     text,
+    # )
 
     time_start = datetime.now()
-    date, time = await asyncio.to_thread(llm.extract_pickup_date_time, text, today)
-    time_end = datetime.now()
-    logger.info(
-        f"Time taken for extract_pickup_date_time: {time_end - time_start} seconds"
-    )
-
-    state.reservation.pickup_date = date
-    state.reservation.pickup_time = time
-
-    logger.info(
-        "Captured pickup date/time: date=%s time=%s (from %r)",
-        date,
-        time,
-        text,
-    )
-
-    time_start = datetime.now()
+    date = None
     if date is None and text:
         transcript = text
 
