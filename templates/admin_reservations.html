@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title }}</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #ffffff;
+        --muted: #64748b;
+        --text: #0f172a;
+        --border: #e2e8f0;
+        --border-strong: #cbd5e1;
+        --primary: #2563eb;
+        --primary-hover: #1d4ed8;
+        --primary-soft: #eff6ff;
+        --row-hover: #f8fafc;
+        --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        color: var(--text);
+        background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 50%, #ecfeff 100%);
+        min-height: 100vh;
+        padding: 48px 16px;
+      }
+      .wrap {
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      h1 {
+        font-size: 24px;
+        margin: 0;
+        letter-spacing: -0.01em;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+        padding: 24px;
+      }
+      .card + .card { margin-top: 20px; }
+      .card h2 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      .card .hint {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0 0 16px;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        background: var(--primary);
+        color: #fff;
+        padding: 10px 16px;
+        border-radius: 9px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, transform 0.05s;
+        font-family: inherit;
+      }
+      button:hover:not(:disabled) { background: var(--primary-hover); }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled {
+        background: #94a3b8;
+        cursor: not-allowed;
+      }
+      .table-scroll {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        background: #fff;
+      }
+      thead th {
+        text-align: left;
+        background: var(--primary-soft);
+        color: var(--text);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      tbody td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      tbody tr:last-child td { border-bottom: 0; }
+      tbody tr:hover { background: var(--row-hover); }
+      .muted { color: var(--muted); }
+      .count {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .empty {
+        padding: 24px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        vertical-align: -2px;
+        margin-right: 6px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      footer {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>{{ title }}</h1>
+        <button type="button" id="refresh-btn" onclick="refreshData()">Refresh</button>
+      </header>
+
+      <section class="card">
+        <h2>Accounts <span class="count">({{ accounts|length }})</span></h2>
+        <p class="hint">All rows from <code>accounts_table</code>.</p>
+        {% if accounts %}
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Account #</th>
+                <th>Name</th>
+                <th>CID</th>
+                <th>Phone</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in accounts %}
+              <tr>
+                <td>{{ a.id }}</td>
+                <td>{{ a.account_number }}</td>
+                <td>{{ a.name }}</td>
+                <td>{% if a.cid %}{{ a.cid }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{% if a.phone %}{{ a.phone }}{% else %}<span class="muted">—</span>{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty">No accounts found.</div>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <h2>Reservations <span class="count">({{ reservations|length }})</span></h2>
+        <p class="hint">All rows from <code>reservations</code>.</p>
+        {% if reservations %}
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Account ID</th>
+                <th>First Name</th>
+                <th>Last Name</th>
+                <th>Pickup Date</th>
+                <th>Pickup Time</th>
+                <th>Pickup Address</th>
+                <th>Drop-off Address</th>
+                <th>Created At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in reservations %}
+              <tr>
+                <td>{{ r.id }}</td>
+                <td>{{ r.account_id }}</td>
+                <td>{{ r.first_name }}</td>
+                <td>{{ r.last_name }}</td>
+                <td>{{ r.pickup_date }}</td>
+                <td>{{ r.pickup_time }}</td>
+                <td>{{ r.pickup_address }}</td>
+                <td>{{ r.drop_off_address }}</td>
+                <td>{{ r.created_at }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty">No reservations found.</div>
+        {% endif %}
+      </section>
+
+      <footer>Elite Limousine IVR — admin</footer>
+    </div>
+
+    <script>
+      function refreshData() {
+        const btn = document.getElementById("refresh-btn");
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>Refreshing…';
+        window.location.reload();
+      }
+    </script>
+  </body>
+</html>
