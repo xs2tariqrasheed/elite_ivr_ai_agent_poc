@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
 def _format_date_time(date: datetime or str) -> str:
     
     if isinstance(date, datetime):
+        logger.info(f"date is object: {date}")
         return date.strftime("%A %B %d")
     if isinstance(date, str):
+        logger.info(f"date is string: {date}")
         return datetime.strptime(date, "%Y-%m-%d")
     return ""
 
