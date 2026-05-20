@@ -88,6 +88,96 @@
         font-size: 12px;
       }
       button.btn-danger:hover:not(:disabled) { background: #b91c1c; }
+      button.btn-secondary {
+        background: #fff;
+        color: var(--text);
+        border: 1px solid var(--border-strong);
+      }
+      button.btn-secondary:hover:not(:disabled) {
+        background: var(--row-hover);
+      }
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 4px;
+      }
+      .section-header h2 { margin: 0; }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 50;
+      }
+      .modal-backdrop.open { display: flex; }
+      .modal {
+        background: var(--panel);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+        width: 100%;
+        max-width: 480px;
+        padding: 24px;
+      }
+      .modal h3 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      .modal .hint { margin: 0 0 16px; }
+      .form-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+      .form-row label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .form-row input {
+        font-family: inherit;
+        font-size: 14px;
+        padding: 9px 11px;
+        border-radius: 8px;
+        border: 1px solid var(--border-strong);
+        background: #fff;
+        color: var(--text);
+        outline: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      .form-row input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+      }
+      .form-row .field-hint {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .modal-error {
+        background: #fef2f2;
+        color: #b91c1c;
+        border: 1px solid #fecaca;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        margin-bottom: 12px;
+        display: none;
+      }
+      .modal-error.show { display: block; }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 8px;
+      }
       .table-scroll {
         overflow-x: auto;
         border: 1px solid var(--border);
@@ -158,10 +248,12 @@
       </header>
 
       <section class="card">
-        <h2>Accounts <span class="count">({{ accounts|length }})</span></h2>
+        <div class="section-header">
+          <h2>Accounts <span class="count" id="accounts-count">({{ accounts|length }})</span></h2>
+          <button type="button" id="add-account-btn" onclick="openAddAccountModal()">+ Add Account</button>
+        </div>
         <p class="hint">All rows from <code>accounts_table</code>.</p>
-        {% if accounts %}
-        <div class="table-scroll">
+        <div class="table-scroll" id="accounts-table-wrap" {% if not accounts %}style="display:none;"{% endif %}>
           <table>
             <thead>
               <tr>
@@ -172,7 +264,7 @@
                 <th>Phone</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="accounts-tbody">
               {% for a in accounts %}
               <tr>
                 <td>{{ a.id }}</td>
@@ -185,9 +277,9 @@
             </tbody>
           </table>
         </div>
-        {% else %}
-        <div class="empty">No accounts found.</div>
-        {% endif %}
+        <div class="empty" id="accounts-empty" {% if accounts %}style="display:none;"{% endif %}>
+          No accounts found.
+        </div>
       </section>
 
       <section class="card">
@@ -244,12 +336,151 @@
       <footer>Elite Limousine IVR — admin</footer>
     </div>
 
+    <div class="modal-backdrop" id="add-account-modal" onclick="onModalBackdropClick(event)">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-account-title">
+        <h3 id="add-account-title">Add Account</h3>
+        <p class="hint">Create a new entry in <code>accounts_table</code>.</p>
+        <div class="modal-error" id="add-account-error"></div>
+        <form id="add-account-form" onsubmit="submitAddAccount(event)">
+          <div class="form-row">
+            <label for="acc-account-number">Account # *</label>
+            <input id="acc-account-number" name="account_number" type="text" maxlength="64" required autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label for="acc-name">Name *</label>
+            <input id="acc-name" name="name" type="text" maxlength="255" required autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label for="acc-cid">CID</label>
+            <input id="acc-cid" name="cid" type="text" maxlength="64" autocomplete="off" />
+            <span class="field-hint">Optional caller ID.</span>
+          </div>
+          <div class="form-row">
+            <label for="acc-phone">Phone</label>
+            <input id="acc-phone" name="phone" type="text" maxlength="32" autocomplete="off" />
+            <span class="field-hint">Optional contact phone.</span>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" onclick="closeAddAccountModal()">Cancel</button>
+            <button type="submit" id="add-account-submit">Create Account</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <script>
       function refreshData() {
         const btn = document.getElementById("refresh-btn");
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span>Refreshing…';
         window.location.reload();
+      }
+
+      function openAddAccountModal() {
+        const modal = document.getElementById("add-account-modal");
+        const errorBox = document.getElementById("add-account-error");
+        errorBox.classList.remove("show");
+        errorBox.textContent = "";
+        document.getElementById("add-account-form").reset();
+        modal.classList.add("open");
+        setTimeout(() => document.getElementById("acc-account-number").focus(), 50);
+      }
+
+      function closeAddAccountModal() {
+        document.getElementById("add-account-modal").classList.remove("open");
+      }
+
+      function onModalBackdropClick(event) {
+        if (event.target.id === "add-account-modal") closeAddAccountModal();
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeAddAccountModal();
+      });
+
+      function escapeHtml(value) {
+        if (value == null) return "";
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function appendAccountRow(account) {
+        const tbody = document.getElementById("accounts-tbody");
+        const tableWrap = document.getElementById("accounts-table-wrap");
+        const emptyEl = document.getElementById("accounts-empty");
+        const tr = document.createElement("tr");
+        const cidCell = account.cid
+          ? escapeHtml(account.cid)
+          : '<span class="muted">—</span>';
+        const phoneCell = account.phone
+          ? escapeHtml(account.phone)
+          : '<span class="muted">—</span>';
+        tr.innerHTML =
+          `<td>${escapeHtml(account.id)}</td>` +
+          `<td>${escapeHtml(account.account_number)}</td>` +
+          `<td>${escapeHtml(account.name)}</td>` +
+          `<td>${cidCell}</td>` +
+          `<td>${phoneCell}</td>`;
+        tbody.appendChild(tr);
+        tableWrap.style.display = "";
+        emptyEl.style.display = "none";
+        const countEl = document.getElementById("accounts-count");
+        countEl.textContent = `(${tbody.children.length})`;
+      }
+
+      async function submitAddAccount(event) {
+        event.preventDefault();
+        const submitBtn = document.getElementById("add-account-submit");
+        const errorBox = document.getElementById("add-account-error");
+        errorBox.classList.remove("show");
+        errorBox.textContent = "";
+
+        const payload = {
+          account_number: document.getElementById("acc-account-number").value.trim(),
+          name: document.getElementById("acc-name").value.trim(),
+          cid: document.getElementById("acc-cid").value.trim() || null,
+          phone: document.getElementById("acc-phone").value.trim() || null,
+        };
+
+        submitBtn.disabled = true;
+        const originalText = submitBtn.textContent;
+        submitBtn.innerHTML = '<span class="spinner"></span>Creating…';
+
+        try {
+          const res = await fetch("/admin-accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            let message = `HTTP ${res.status}`;
+            try {
+              const body = await res.json();
+              if (body && body.detail) {
+                message = typeof body.detail === "string"
+                  ? body.detail
+                  : JSON.stringify(body.detail);
+              }
+            } catch (_) {
+              const text = await res.text();
+              if (text) message = text;
+            }
+            throw new Error(message);
+          }
+          const body = await res.json();
+          appendAccountRow(body.account);
+          closeAddAccountModal();
+        } catch (err) {
+          errorBox.textContent = err.message || "Failed to create account.";
+          errorBox.classList.add("show");
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+        }
       }
 
       async function deleteReservation(id, btn) {
