@@ -1,11 +1,14 @@
 """Admin UI — Jinja2-rendered page for triggering backend APIs."""
 
 import os
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from db.database import get_db
 from db.models import Account, Reservation
@@ -107,3 +110,55 @@ def delete_reservation(reservation_id: int) -> JSONResponse:
         session.delete(reservation)
         session.commit()
     return JSONResponse({"ok": True, "id": reservation_id})
+
+
+class AccountCreate(BaseModel):
+    account_number: str = Field(..., min_length=1, max_length=64)
+    name: str = Field(..., min_length=1, max_length=255)
+    cid: Optional[str] = Field(None, max_length=64)
+    phone: Optional[str] = Field(None, max_length=32)
+
+
+@router.post("/admin-accounts", status_code=201)
+def create_account(payload: AccountCreate) -> JSONResponse:
+    """Create a new account."""
+    account_number = payload.account_number.strip()
+    name = payload.name.strip()
+    cid = payload.cid.strip() if payload.cid else None
+    phone = payload.phone.strip() if payload.phone else None
+
+    if not account_number:
+        raise HTTPException(status_code=400, detail="account_number is required")
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    with get_db() as session:
+        account = Account(
+            account_number=account_number,
+            name=name,
+            cid=cid or None,
+            phone=phone or None,
+        )
+        session.add(account)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Account number {account_number!r} already exists",
+            )
+        session.refresh(account)
+        return JSONResponse(
+            {
+                "ok": True,
+                "account": {
+                    "id": account.id,
+                    "account_number": account.account_number,
+                    "name": account.name,
+                    "cid": account.cid,
+                    "phone": account.phone,
+                },
+            },
+            status_code=201,
+        )
