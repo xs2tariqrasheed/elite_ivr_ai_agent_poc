@@ -2,8 +2,8 @@
 
 import os
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
@@ -18,6 +18,27 @@ _TEMPLATES_DIR = os.path.join(
 templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
 router = APIRouter()
+
+
+def _format_date(d) -> str:
+    """Format a date as e.g. 'May 20, 2026'."""
+    if not d:
+        return ""
+    return d.strftime("%B %-d, %Y")
+
+
+def _format_time(t) -> str:
+    """Format a time as e.g. '2:30 PM'."""
+    if not t:
+        return ""
+    return t.strftime("%-I:%M %p")
+
+
+def _format_datetime(dt) -> str:
+    """Format a datetime as e.g. 'May 20, 2026, 2:30 PM'."""
+    if not dt:
+        return ""
+    return dt.strftime("%B %-d, %Y, %-I:%M %p")
 
 
 @router.get("/admin", response_class=HTMLResponse)
@@ -56,11 +77,11 @@ def admin_reservations_page(request: Request) -> HTMLResponse:
                 "account_id": r.account_id,
                 "first_name": r.first_name,
                 "last_name": r.last_name,
-                "pickup_date": r.pickup_date.isoformat() if r.pickup_date else "",
-                "pickup_time": r.pickup_time.isoformat() if r.pickup_time else "",
+                "pickup_date": _format_date(r.pickup_date),
+                "pickup_time": _format_time(r.pickup_time),
                 "pickup_address": r.pickup_address,
                 "drop_off_address": r.drop_off_address,
-                "created_at": r.created_at.isoformat() if r.created_at else "",
+                "created_at": _format_datetime(r.created_at),
             }
             for r in reservations
         ]
@@ -74,3 +95,15 @@ def admin_reservations_page(request: Request) -> HTMLResponse:
             "reservations": reservations_view,
         },
     )
+
+
+@router.delete("/admin-reservations/{reservation_id}")
+def delete_reservation(reservation_id: int) -> JSONResponse:
+    """Delete a reservation by id."""
+    with get_db() as session:
+        reservation = session.get(Reservation, reservation_id)
+        if reservation is None:
+            raise HTTPException(status_code=404, detail="Reservation not found")
+        session.delete(reservation)
+        session.commit()
+    return JSONResponse({"ok": True, "id": reservation_id})
