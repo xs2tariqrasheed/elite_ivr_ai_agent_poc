@@ -82,6 +82,12 @@
         background: #94a3b8;
         cursor: not-allowed;
       }
+      button.btn-danger {
+        background: #dc2626;
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+      button.btn-danger:hover:not(:disabled) { background: #b91c1c; }
       .table-scroll {
         overflow-x: auto;
         border: 1px solid var(--border);
@@ -201,11 +207,12 @@
                 <th>Pickup Address</th>
                 <th>Drop-off Address</th>
                 <th>Created At</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {% for r in reservations %}
-              <tr>
+              <tr data-reservation-id="{{ r.id }}">
                 <td>{{ r.id }}</td>
                 <td>{{ r.account_id }}</td>
                 <td>{{ r.first_name }}</td>
@@ -215,6 +222,15 @@
                 <td>{{ r.pickup_address }}</td>
                 <td>{{ r.drop_off_address }}</td>
                 <td>{{ r.created_at }}</td>
+                <td>
+                  <button
+                    type="button"
+                    class="btn-danger"
+                    onclick="deleteReservation({{ r.id }}, this)"
+                  >
+                    Delete
+                  </button>
+                </td>
               </tr>
               {% endfor %}
             </tbody>
@@ -234,6 +250,28 @@
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span>Refreshing…';
         window.location.reload();
+      }
+
+      async function deleteReservation(id, btn) {
+        if (!window.confirm(`Delete reservation #${id}? This cannot be undone.`)) {
+          return;
+        }
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.innerHTML = '<span class="spinner"></span>Deleting…';
+        try {
+          const res = await fetch(`/admin-reservations/${id}`, { method: "DELETE" });
+          if (!res.ok) {
+            const body = await res.text();
+            throw new Error(body || `HTTP ${res.status}`);
+          }
+          const row = document.querySelector(`tr[data-reservation-id="${id}"]`);
+          if (row) row.remove();
+        } catch (err) {
+          window.alert(`Failed to delete reservation #${id}: ${err.message}`);
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
       }
     </script>
   </body>
