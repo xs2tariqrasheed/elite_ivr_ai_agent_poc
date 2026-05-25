@@ -148,6 +148,127 @@ def extract_pickup_date_time(
     return date, time
 
 
+def extract_pickup_date_openai(
+    text: str, today: Optional[datetime] = None
+) -> Optional[str]:
+    """Extract just the pickup date from a spoken sentence using OpenAI.
+
+    Returns a ``YYYY-MM-DD`` string or ``None`` if no date could be
+    extracted. Relative references like "tomorrow" or "next Monday" are
+    resolved against ``today`` (defaults to ``datetime.now()``).
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    today = today or datetime.now()
+    today_str = today.strftime("%Y-%m-%d")
+    weekday = today.strftime("%A")
+
+    prompt = (
+        "You are an information extraction assistant for a phone-call IVR "
+        "system. The caller was asked for the pickup date of their "
+        "reservation. The sentence below is the speech-to-text transcript "
+        "of their reply. The date may appear in any format (e.g. "
+        "\"tomorrow\", \"June 3rd\", \"next Monday\", \"the 12th\"). "
+        "The transcript may contain speech-to-text errors.\n\n"
+        f"Today is {today_str} ({weekday}). Resolve relative references "
+        "(today, tomorrow, tonight, next Monday, etc.) against this date. "
+        "If the date is missing or unclear, emit null.\n\n"
+        "Respond with ONLY a single JSON object on one line, no prose, no "
+        "code fences, with exactly one key: \"date\" (string in "
+        "YYYY-MM-DD format or null).\n\n"
+        f"Sentence: {text}\n"
+        "Answer:"
+    )
+
+    raw = ""
+    try:
+        client = _get_openai_client()
+        completion = client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=32,
+            response_format={"type": "json_object"},
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+    except Exception:
+        logger.exception("OpenAI call failed for pickup date extraction")
+
+    logger.debug("OpenAI pickup date raw response: %r", raw)
+
+    date, _ = _parse_llm_response(raw)
+    logger.info(
+        "Extracted pickup date (openai): date=%s (from %r)",
+        date,
+        text,
+    )
+    return date
+
+
+def extract_pickup_time_openai(
+    text: str, today: Optional[datetime] = None
+) -> Optional[str]:
+    """Extract just the pickup time from a spoken sentence using OpenAI.
+
+    Returns an ``HH:MM:SS`` string in 24-hour format or ``None`` if no
+    time could be extracted. ``today`` is used only to interpret
+    ambiguous "morning/afternoon/evening" hints.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    today = today or datetime.now()
+    today_str = today.strftime("%Y-%m-%d")
+    weekday = today.strftime("%A")
+
+    prompt = (
+        "You are an information extraction assistant for a phone-call IVR "
+        "system. The caller was asked for the pickup time of their "
+        "reservation. The sentence below is the speech-to-text transcript "
+        "of their reply. The time may appear in any format (e.g. "
+        "\"5pm\", \"14:30\", \"nine thirty in the morning\", "
+        "\"quarter past three\"). The transcript may contain "
+        "speech-to-text errors.\n\n"
+        f"Today is {today_str} ({weekday}). If the caller gives an AM/PM "
+        "hint, convert to 24-hour time. Treat \"morning\" as ~09:00, "
+        "\"afternoon\" as ~14:00, \"evening\" as ~19:00, \"night\" as "
+        "~21:00 when the caller gives only a vague hint. If the time is "
+        "missing or unclear, emit null.\n\n"
+        "Respond with ONLY a single JSON object on one line, no prose, no "
+        "code fences, with exactly one key: \"time\" (string in "
+        "HH:MM:SS 24-hour format or null).\n\n"
+        f"Sentence: {text}\n"
+        "Answer:"
+    )
+
+    raw = ""
+    try:
+        client = _get_openai_client()
+        completion = client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=32,
+            response_format={"type": "json_object"},
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+    except Exception:
+        logger.exception("OpenAI call failed for pickup time extraction")
+
+    logger.debug("OpenAI pickup time raw response: %r", raw)
+
+    _, time = _parse_llm_response(raw)
+    logger.info(
+        "Extracted pickup time (openai): time=%s (from %r)",
+        time,
+        text,
+    )
+    return time
+
+
 def extract_pickup_date_time_openai(
     text: str, today: Optional[datetime] = None
 ) -> Tuple[Optional[str], Optional[str]]:
