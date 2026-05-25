@@ -12,4 +12,4 @@ async def _run_phase_last_name(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_LAST_NAME
     await _speak(websocket, state, [["rec_last_name"]])
     state.reservation.last_name = (await _listen(state)).strip()
-    return phases.PHASE_PICKUP_DATE_TIME
+    return phases.PHASE_PICKUP_DATE

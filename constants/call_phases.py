@@ -13,6 +13,8 @@ PHASE_ACCOUNT_NAME = "phase_3_account_name"
 PHASE_FIRST_NAME = "phase_4_first_name"
 PHASE_LAST_NAME = "phase_5_last_name"
 PHASE_PICKUP_DATE_TIME = "phase_6_pickup_date_time"
+PHASE_PICKUP_DATE = "phase_6a_pickup_date"
+PHASE_PICKUP_TIME = "phase_6b_pickup_time"
 PHASE_PICKUP_ADDRESS = "phase_7_pickup_address"
 PHASE_DROPOFF_ADDRESS = "phase_8_dropoff_address"
 PHASE_CALLBACK_NUMBER = "phase_9_callback_number"
@@ -35,7 +37,8 @@ PHASE_ORDER = [
     PHASE_ACCOUNT_NAME,
     PHASE_FIRST_NAME,
     PHASE_LAST_NAME,
-    PHASE_PICKUP_DATE_TIME,
+    PHASE_PICKUP_DATE,
+    PHASE_PICKUP_TIME,
     PHASE_PICKUP_ADDRESS,
     PHASE_DROPOFF_ADDRESS,
     PHASE_CALLBACK_NUMBER,
