@@ -3,7 +3,8 @@
 import asyncio
 import logging
 
-from datetime import datetime
+from datetime import date, datetime, time as dt_time
+from typing import Union
 
 from fastapi import WebSocket
 
@@ -16,23 +17,49 @@ from services.text_to_speech_in_memory_service import text_to_speech_in_memory
 logger = logging.getLogger(__name__)
 
 
-def _format_date_time(date: datetime or str) -> str:
-    
-    if isinstance(date, datetime):
-        logger.info(f"date is object: {date}")
-        return date.strftime("%A %B %d")
-    if isinstance(date, str):
-        logger.info(f"date is string: {date}")
-        return datetime.strptime(date, "%Y-%m-%d").strftime("%A %B %#d")
+def _ordinal_suffix(day: int) -> str:
+    if 11 <= (day % 100) <= 13:
+        return "th"
+    return {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+
+
+def _format_date_time(value: Union[datetime, date, str, None]) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            logger.warning("Could not parse pickup_date string %r", value)
+            return ""
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return f"{value.strftime('%A, %B')} {value.day}{_ordinal_suffix(value.day)}"
     return ""
 
-def _format_time(time: datetime or str) -> str:
-    if isinstance(time, datetime):
-        logger.info(f"time is object: {time}")
-        return time.strftime("%I:%M %p")
-    if isinstance(time, str):
-        logger.info(f"time is string: {time}")
-        return datetime.strptime(time, "%H:%M:%S").strftime("%I:%M %p")
+
+def _format_time(value: Union[datetime, dt_time, str, None]) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        for fmt in ("%H:%M:%S", "%H:%M"):
+            try:
+                value = datetime.strptime(value, fmt).time()
+                break
+            except ValueError:
+                continue
+        else:
+            logger.warning("Could not parse pickup_time string %r", value)
+            return ""
+    if isinstance(value, datetime):
+        value = value.time()
+    if isinstance(value, dt_time):
+        hour_12 = value.hour % 12 or 12
+        ampm = "AM" if value.hour < 12 else "PM"
+        if value.minute == 0:
+            return f"{hour_12} {ampm}"
+        return f"{hour_12}:{value.minute:02d} {ampm}"
     return ""
 
 async def _run_phase_dropoff_address(websocket: WebSocket, state) -> str:

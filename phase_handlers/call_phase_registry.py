@@ -165,3 +165,12 @@ async def _run_call_flow(websocket: WebSocket, state) -> None:
             await voice.send_clear(websocket, state.stream_sid)
         except Exception:
             pass
+        # Close the WebSocket to force Twilio to terminate the call. With
+        # <Connect><Stream>, Twilio keeps the call alive while the stream
+        # WebSocket is open, so closing it here is the reliable hang-up
+        # path when the REST update returns 20404 (call already removed
+        # from Twilio's REST view but the media stream is still live).
+        try:
+            await websocket.close()
+        except Exception:
+            pass
