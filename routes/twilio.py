@@ -155,17 +155,25 @@ async def twilio_stream(websocket: WebSocket) -> None:
                     state.signal_mark(mark_name)
 
             elif event == "stop":
-                # remove call state
-                call_state_service.remove_call_state(state.stream_sid)
+                if state is not None:
+                    call_state_service.remove_call_state(state.stream_sid)
                 logger.info("Twilio reports stream stop")
                 break
 
             else:
-                call_state_service.remove_call_state(state.stream_sid)
                 logger.debug("Unhandled Twilio event: %s", event)
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected")
+    except RuntimeError as exc:
+        # The call-flow task closes the WebSocket in its finally block to
+        # force Twilio to terminate the call. The next receive_text() here
+        # then raises RuntimeError ("WebSocket is not connected") instead
+        # of WebSocketDisconnect — treat that as a normal shutdown.
+        if "not connected" in str(exc).lower():
+            logger.info("WebSocket already closed: %s", exc)
+        else:
+            logger.exception("WebSocket loop crashed")
     except Exception:
         logger.exception("WebSocket loop crashed")
     finally:
