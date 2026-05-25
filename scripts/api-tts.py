@@ -45,6 +45,14 @@ PROMPT_FOR_PICKUP_DATE_TIME = (
     "[politely] Okay, What is the pickup date and time for this reservation?"
 )
 
+PROMPT_FOR_PICKUP_DATE = (
+    "[politely] Okay, What is the pickup date for this reservation?"
+)
+
+PROMPT_FOR_PICKUP_TIME = (
+    "[politely] and, What is the pickup time?"
+)
+
 EMAIL_CONFIRMATION = (
     "[politely] We will send ride confirmation and receipts to John.Smith@gmail.com."
     "[asking] Is it okay?"
@@ -63,7 +71,7 @@ RESERVATION_ID_MESSAGE = (
 
 DEFAULT_URL = "http://localhost:8000/gen-audio"
 
-message_to_say = RESERVATION_ID_MESSAGE
+message_to_say = PROMPT_FOR_PICKUP_TIME
 
 
 def parse_args() -> argparse.Namespace:
@@ -76,7 +84,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--file-name",
-        default="test.mp3",
+        default="pickup_time.mp3",
         help="File name to save the audio to.",
     )
     parser.add_argument(

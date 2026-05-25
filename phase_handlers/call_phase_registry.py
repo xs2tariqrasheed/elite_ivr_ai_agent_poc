@@ -20,6 +20,7 @@ import logging
 from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
+from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client as TwilioClient
 
 import config
@@ -44,10 +45,19 @@ def _hangup_call(call_sid: str) -> None:
     try:
         client = TwilioClient(config.TWILIO_ACCOUNT_SID, config.TWILIO_AUTH_TOKEN)
         client.calls(call_sid).update(status="completed")
-        call_state_service.remove_call_state(call_sid)
         logger.info("Hung up call %s via Twilio REST", call_sid)
+    except TwilioRestException as e:
+        if e.status == 404:
+            logger.info(
+                "Call %s already ended (Twilio 20404) — nothing to hang up",
+                call_sid,
+            )
+        else:
+            logger.exception("Failed to hang up call %s", call_sid)
     except Exception:
         logger.exception("Failed to hang up call %s", call_sid)
+    finally:
+        call_state_service.remove_call_state(call_sid)
 
 
 # ---------------------------------------------------------------------------
