@@ -20,7 +20,31 @@ logger = logging.getLogger(__name__)
 async def _run_phase_pickup_time(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_PICKUP_TIME
     await _speak(websocket, state, [["pickup_time"]])
-    text = (await _listen(state, max_seconds=15.0)).strip()
+    text = (
+        await _listen(
+            state,
+            max_seconds=15.0,
+            initial_prompt=(
+                "The caller is stating the pickup time for their limousine "
+                "reservation. They may say a clock time like 9 AM or 3:30 PM, "
+                "a time of day like morning, noon, afternoon, evening, or "
+                "midnight, or a relative time like in an hour or right now."
+            ),
+            hotwords=(
+                "AM, PM, a.m., p.m., o'clock, "
+                "morning, noon, afternoon, evening, night, midnight, midday, "
+                "early morning, late morning, early afternoon, late afternoon, "
+                "early evening, late evening, tonight, "
+                "quarter, half, past, to, sharp, "
+                "one, two, three, four, five, six, seven, eight, nine, ten, "
+                "eleven, twelve, thirteen, fourteen, fifteen, twenty, thirty, "
+                "forty, fifty, "
+                "hour, hours, minute, minutes, "
+                "now, right now, in an hour, in half an hour, "
+                "pickup, time"
+            ),
+        )
+    ).strip()
 
     time_start = datetime.now()
     if text:

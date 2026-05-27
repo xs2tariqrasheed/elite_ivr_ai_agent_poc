@@ -20,7 +20,31 @@ logger = logging.getLogger(__name__)
 async def _run_phase_pickup_date(websocket: WebSocket, state) -> str:
     state.phase = phases.PHASE_PICKUP_DATE
     await _speak(websocket, state, [["pickup_date"]])
-    text = (await _listen(state, max_seconds=15.0)).strip()
+    text = (
+        await _listen(
+            state,
+            max_seconds=15.0,
+            initial_prompt=(
+                "The caller is stating the pickup date for their limousine "
+                "reservation. They may say a weekday, a calendar date, a "
+                "holiday, or a relative day like today, tomorrow, or next week."
+            ),
+            hotwords=(
+                "today, tomorrow, tonight, day after tomorrow, this, next, "
+                "Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday, "
+                "January, February, March, April, May, June, July, August, "
+                "September, October, November, December, "
+                "first, second, third, fourth, fifth, sixth, seventh, eighth, "
+                "ninth, tenth, eleventh, twelfth, thirteenth, fourteenth, "
+                "fifteenth, sixteenth, seventeenth, eighteenth, nineteenth, "
+                "twentieth, thirtieth, "
+                "weekend, weekday, morning, evening, "
+                "Christmas, Christmas Eve, New Year, New Year's Eve, "
+                "Thanksgiving, Easter, Memorial Day, Labor Day, Independence Day, "
+                "pickup, reservation, date"
+            ),
+        )
+    ).strip()
 
     time_start = datetime.now()
     if text:
