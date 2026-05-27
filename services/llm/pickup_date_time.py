@@ -226,6 +226,88 @@ def normalize_for_duckling_openai(
     return phrase
 
 
+def normalize_time_for_duckling_openai(
+    text: str, today: Optional[datetime] = None
+) -> Optional[str]:
+    """Rewrite a noisy STT transcript into a clean time phrase for Duckling.
+
+    Duckling parses natural-language times well but is brittle to filler
+    words, self-corrections, and STT errors. This helper asks OpenAI to
+    extract just the time-bearing phrase from the transcript and return
+    it as a short, well-formed English string (e.g. "5 PM",
+    "nine thirty in the morning", "quarter past three", "14:30"). The
+    result is fed directly to Duckling; it never contains an explicit
+    HH:MM:SS clock value.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    today = today or datetime.now()
+    today_str = today.strftime("%Y-%m-%d")
+    weekday = today.strftime("%A")
+
+    prompt = (
+        "You are a normalisation step in front of Duckling, an open-source "
+        "date/time parser. The caller in a phone-call IVR system was asked "
+        "for the pickup time of their reservation. Below is the raw "
+        "speech-to-text transcript of their reply. It may contain filler "
+        "words, hesitations, self-corrections, and STT errors.\n\n"
+        f"Today is {today_str} ({weekday}).\n\n"
+        "Rewrite the transcript as a short English phrase that names the "
+        "clock time the caller intends, in a form Duckling will parse "
+        "cleanly. Examples of good outputs: \"5 PM\", \"5:30 PM\", "
+        "\"nine thirty in the morning\", \"quarter past three in the "
+        "afternoon\", \"14:30\", \"midnight\", \"noon\". Keep AM/PM hints "
+        "the caller gave. Do NOT include any date words (no \"tomorrow\", "
+        "no \"Monday\", no calendar date) — the phrase must describe only "
+        "the time of day. Do NOT resolve the phrase to an HH:MM:SS clock "
+        "value yourself — keep it as a natural-language phrase. Do not "
+        "invent a time if the transcript has none.\n\n"
+        "Respond with ONLY a single JSON object on one line, no prose, no "
+        "code fences, with exactly one key: \"phrase\" (string, or null "
+        "if the transcript contains no time reference).\n\n"
+        f"Transcript: {text}\n"
+        "Answer:"
+    )
+
+    raw = ""
+    try:
+        client = _get_openai_client()
+        completion = client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=32,
+            response_format={"type": "json_object"},
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+    except Exception:
+        logger.exception("OpenAI call failed for Duckling time normalisation")
+        return None
+
+    logger.debug("OpenAI Duckling-time-normalisation raw response: %r", raw)
+
+    try:
+        payload = json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+
+    phrase = payload.get("phrase") if isinstance(payload, dict) else None
+    if not isinstance(phrase, str):
+        return None
+    phrase = phrase.strip()
+    if not phrase:
+        return None
+
+    logger.info(
+        "Normalised pickup time phrase for Duckling: %r (from %r)",
+        phrase,
+        text,
+    )
+    return phrase
+
+
 def extract_pickup_date_openai(
     text: str, today: Optional[datetime] = None
 ) -> Optional[str]:
