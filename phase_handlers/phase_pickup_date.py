@@ -8,6 +8,7 @@ from fastapi import WebSocket
 
 from constants import call_phases as phases
 from services import llm
+from services.duckling_service import parse_date_with_duckling
 
 from phase_handlers.listen import _listen
 from phase_handlers.speak import _speak
@@ -25,27 +26,38 @@ async def _run_phase_pickup_date(websocket: WebSocket, state) -> str:
     if text:
         transcript = text
 
-        async def _apply_openai_fallback() -> None:
+        async def _apply_duckling_fallback() -> None:
             try:
-                oa_date = await asyncio.to_thread(
-                    llm.extract_pickup_date_openai, transcript
+                now = datetime.now()
+                phrase = await asyncio.to_thread(
+                    llm.normalize_for_duckling_openai, transcript, now
                 )
-                if oa_date is not None:
-                    state.reservation.pickup_date = oa_date
+                if not phrase:
+                    logger.info(
+                        "Duckling fallback: OpenAI returned no phrase for %r",
+                        transcript,
+                    )
+                    return
+                duckling_date = await asyncio.to_thread(
+                    parse_date_with_duckling, phrase, now
+                )
+                if duckling_date is not None:
+                    state.reservation.pickup_date = duckling_date
                 logger.info(
-                    "OpenAI async fallback pickup date: date=%s",
+                    "Duckling pickup date: phrase=%r date=%s",
+                    phrase,
                     state.reservation.pickup_date,
                 )
             except Exception:
-                logger.exception("OpenAI async fallback failed for pickup date")
+                logger.exception("Duckling fallback failed for pickup date")
 
-        task = asyncio.create_task(_apply_openai_fallback())
+        task = asyncio.create_task(_apply_duckling_fallback())
         state._background_tasks.add(task)
         task.add_done_callback(state._background_tasks.discard)
 
     time_end = datetime.now()
     logger.info(
-        f"Time taken for _apply_openai_fallback (date): {time_end - time_start} seconds"
+        f"Time taken for _apply_duckling_fallback (date): {time_end - time_start} seconds"
     )
 
     return phases.PHASE_PICKUP_TIME
