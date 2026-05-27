@@ -178,3 +178,16 @@ print('cached as:', k)
 curl -X POST http://localhost:8000/gen-audio-in-memory \
   -H "Content-Type: application/json" \
   -d '{"text": "Hello from in-memory TTS", "file_name": "my_runtime_clip.mp3"}'
+
+
+# Use the built-in transcript list
+python3 -m scripts.test_duckling_pickup_date
+
+# Try one or more transcripts of your own
+python3 -m scripts.test_duckling_pickup_date "pick me up tomorrow" "next Monday please"
+
+# Pin a reference time for relative-date tests
+python3 -m scripts.test_duckling_pickup_date --reference-time 2026-05-27T10:00 "tomorrow"
+
+# Verbose (DEBUG) logging
+python3 -m scripts.test_duckling_pickup_date -v "the 3rd of June"

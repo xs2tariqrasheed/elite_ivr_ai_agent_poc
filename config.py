@@ -25,6 +25,11 @@ OLLAMA_MODEL = _get("OLLAMA_MODEL", "qwen2.5:1.5b")
 OPENAI_API_KEY = _get("OPENAI_API_KEY")
 OPENAI_MODEL = _get("OPENAI_MODEL", "gpt-4o-mini")
 
+# Duckling (date/time parsing service)
+DUCKLING_URL = _get("DUCKLING_URL", "http://localhost:8000")
+DUCKLING_LOCALE = _get("DUCKLING_LOCALE", "en_US")
+DUCKLING_TIMEOUT = float(_get("DUCKLING_TIMEOUT", "3.0"))
+
 # fastText intent
 INTENT_MODEL_PATH = _get("INTENT_MODEL_PATH", "intent_model.bin")
 INTENT_CONFIDENCE_THRESHOLD = float(_get("INTENT_CONFIDENCE_THRESHOLD", "0.6"))

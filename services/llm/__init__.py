@@ -15,6 +15,7 @@ from .pickup_date_time import (
     extract_pickup_date_time,
     extract_pickup_date_time_openai,
     extract_pickup_time_openai,
+    normalize_for_duckling_openai,
 )
 from .warm_up import warm_up_model
 from .yes_no import detect_yes_no_llm, detect_yes_no_llm_openai
@@ -26,6 +27,7 @@ __all__ = [
     "extract_pickup_date_time_openai",
     "extract_pickup_date_openai",
     "extract_pickup_time_openai",
+    "normalize_for_duckling_openai",
     "classify_intent",
     "classify_intent_openai",
     "detect_yes_no_llm",
