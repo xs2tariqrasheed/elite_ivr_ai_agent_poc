@@ -3,6 +3,11 @@
 The Duckling HTTP server is expected to be running at ``DUCKLING_URL``
 (``http://localhost:8000`` by default) and to expose the standard
 ``/parse`` endpoint.
+
+Two public helpers are exposed:
+
+* ``parse_date_with_duckling`` — returns a ``YYYY-MM-DD`` date.
+* ``parse_time_with_duckling`` — returns an ``HH:MM:SS`` clock time.
 """
 
 import logging
@@ -57,10 +62,50 @@ def parse_date_with_duckling(
     return _extract_date_from_results(results)
 
 
-def _extract_date_from_results(results) -> Optional[str]:
-    """Pull the first usable ``YYYY-MM-DD`` out of Duckling's response."""
-    if not isinstance(results, list):
+def parse_time_with_duckling(
+    text: str,
+    reference_time: Optional[datetime] = None,
+    locale: Optional[str] = None,
+    url: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> Optional[str]:
+    """Send ``text`` to Duckling and return an ``HH:MM:SS`` time or ``None``.
+
+    Only ``time``-dimension entities are requested; the highest-scoring
+    one whose grain is hour-level or finer is returned as a clock time.
+    """
+    text = (text or "").strip()
+    if not text:
         return None
+
+    url = (url or config.DUCKLING_URL).rstrip("/") + "/parse"
+    locale = locale or config.DUCKLING_LOCALE
+    timeout = timeout if timeout is not None else config.DUCKLING_TIMEOUT
+    ref = reference_time or datetime.now()
+    reftime_ms = int(ref.timestamp() * 1000)
+
+    payload = {
+        "text": text,
+        "locale": locale,
+        "dims": '["time"]',
+        "reftime": reftime_ms,
+    }
+
+    try:
+        resp = requests.post(url, data=payload, timeout=timeout)
+        resp.raise_for_status()
+        results = resp.json()
+    except Exception:
+        logger.exception("Duckling request failed for text=%r", text)
+        return None
+
+    return _extract_time_from_results(results)
+
+
+def _iter_iso_values(results):
+    """Yield (entity, iso_string) pairs for time-dimension entities."""
+    if not isinstance(results, list):
+        return
 
     for entity in results:
         if not isinstance(entity, dict):
@@ -85,6 +130,12 @@ def _extract_date_from_results(results) -> Optional[str]:
         if not iso:
             continue
 
+        yield entity, iso
+
+
+def _extract_date_from_results(results) -> Optional[str]:
+    """Pull the first usable ``YYYY-MM-DD`` out of Duckling's response."""
+    for _entity, iso in _iter_iso_values(results):
         date = _iso_to_date(iso)
         if date:
             return date
@@ -92,10 +143,32 @@ def _extract_date_from_results(results) -> Optional[str]:
     return None
 
 
-def _iso_to_date(iso: str) -> Optional[str]:
-    """Parse Duckling's ISO-8601 timestamp into ``YYYY-MM-DD``."""
+_HOUR_GRAINS = {"hour", "minute", "second"}
+
+
+def _extract_time_from_results(results) -> Optional[str]:
+    """Pull the first usable ``HH:MM:SS`` out of Duckling's response.
+
+    Only entries with a grain of ``hour``/``minute``/``second`` are
+    considered — a day-grained match has no clock time information.
+    """
+    for entity, iso in _iter_iso_values(results):
+        value = entity.get("value") or {}
+        grain = value.get("grain")
+        if grain and grain not in _HOUR_GRAINS:
+            continue
+
+        time_str = _iso_to_time(iso)
+        if time_str:
+            return time_str
+
+    return None
+
+
+def _parse_duckling_iso(iso: str) -> Optional[datetime]:
+    """Parse Duckling's ISO-8601 timestamp into a ``datetime``."""
     try:
-        # Duckling emits e.g. ``2026-05-28T00:00:00.000-07:00``.
+        # Duckling emits e.g. ``2026-05-28T17:00:00.000-07:00``.
         # ``fromisoformat`` handles the timezone in Python 3.11+; for
         # older Pythons we strip the millisecond fragment.
         cleaned = iso.replace("Z", "+00:00")
@@ -109,8 +182,23 @@ def _iso_to_date(iso: str) -> Optional[str]:
                     tz = tail[i:]
                     break
             cleaned = head + tz
-        dt = datetime.fromisoformat(cleaned)
+        return datetime.fromisoformat(cleaned)
     except ValueError:
         logger.debug("Could not parse Duckling ISO timestamp: %r", iso)
         return None
+
+
+def _iso_to_date(iso: str) -> Optional[str]:
+    """Parse Duckling's ISO-8601 timestamp into ``YYYY-MM-DD``."""
+    dt = _parse_duckling_iso(iso)
+    if dt is None:
+        return None
     return dt.strftime("%Y-%m-%d")
+
+
+def _iso_to_time(iso: str) -> Optional[str]:
+    """Parse Duckling's ISO-8601 timestamp into 24-hour ``HH:MM:SS``."""
+    dt = _parse_duckling_iso(iso)
+    if dt is None:
+        return None
+    return dt.strftime("%H:%M:%S")
