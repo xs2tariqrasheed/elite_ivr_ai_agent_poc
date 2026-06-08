@@ -204,3 +204,20 @@ class TurnHandler:
             await self._client.send_json({"type": "speaking_end"})
         except Exception:
             pass
+
+        # End of call: if the agent finalized the reservation (step 9), let the
+        # closing line finish playing, then hang up by closing the transport.
+        # For Twilio, closing the Media Stream ends the <Connect> verb and, with
+        # no further TwiML, drops the call.
+        if not interrupted and not self._state.closed:
+            final_state = self._agent.snapshot()
+            if final_state and final_state.get("end_call"):
+                remaining = self._state.speaking_until - time.monotonic()
+                if remaining > 0:
+                    await asyncio.sleep(remaining + 0.5)
+                self._state.closed = True
+                log.info("End of call — hanging up")
+                try:
+                    await self._client.close()
+                except Exception:
+                    pass

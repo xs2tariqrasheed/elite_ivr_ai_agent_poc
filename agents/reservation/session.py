@@ -13,6 +13,8 @@ class ReservationSession:
 
     def __init__(self, account: Optional[dict] = None) -> None:
         account = account or {}
+        # account_id (accounts_table PK) ties the saved reservation to its owner.
+        self.account_id: Optional[int] = account.get("id")
         self.caller_name: Optional[str] = account.get("name")
         self.caller_email: Optional[str] = account.get("email")
         self.caller_phone: Optional[str] = account.get("phone")
@@ -24,6 +26,9 @@ class ReservationSession:
         self.confirmed: bool = False
         self.confirmation_number: Optional[str] = None
         self.transferred: bool = False
+        # Set once the reservation is finalized (step 9); the pipeline reads this
+        # off the snapshot to hang up after the closing line finishes playing.
+        self.end_call: bool = False
 
     def generate_confirmation_number(self) -> str:
         """Assign and return a confirmation number like 'AJX123'."""
@@ -34,6 +39,7 @@ class ReservationSession:
 
     def to_dict(self) -> dict:
         return {
+            "account_id": self.account_id,
             "caller_name": self.caller_name,
             "caller_email": self.caller_email,
             "caller_phone": self.caller_phone,
@@ -43,4 +49,5 @@ class ReservationSession:
             "confirmed": self.confirmed,
             "confirmation_number": self.confirmation_number,
             "transferred": self.transferred,
+            "end_call": self.end_call,
         }

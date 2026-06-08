@@ -6,6 +6,7 @@ from langchain_core.tools import BaseTool, tool
 
 from agents.langgraph_agent import LangGraphAgent
 from agents.reservation.session import ReservationSession
+from agents.reservation.store import save_reservation
 from configs.settings import Settings
 
 SYSTEM_PROMPT = """You are Ann, a warm and professional phone agent for "Elite Limousine".
@@ -153,6 +154,10 @@ def _make_tools(session: ReservationSession) -> List[BaseTool]:
             return f"Cannot finalize yet; still missing: {', '.join(missing)}."
         session.confirmed = True
         number = session.generate_confirmation_number()
+        # Persist the reservation, then flag end-of-call so the pipeline hangs up
+        # once the closing line (with this number) finishes playing.
+        save_reservation(session)
+        session.end_call = True
         spaced = " ".join(number)
         return f"Reservation saved. Confirmation number is {spaced}."
 
