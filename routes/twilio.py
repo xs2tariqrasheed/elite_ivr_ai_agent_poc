@@ -15,7 +15,7 @@ from fastapi import APIRouter, Request, WebSocket
 from fastapi.responses import Response
 
 from configs.settings import TWILIO_AUDIO, settings
-from db import get_account_by_phone
+from db.accounts import get_account_by_phone
 from services.twilio_transport import TwilioTransport
 from services.voice_session import VoiceSession
 

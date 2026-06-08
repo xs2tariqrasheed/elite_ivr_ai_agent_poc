@@ -1,0 +1,193 @@
+==============================================================================
+Elite IVR — EC2 (Amazon Linux 2023) day-to-day commands
+==============================================================================
+
+SSH into the server:
+    ssh -i ~/Downloads/demo_rsa.pem ec2-user@ec2-3-82-48-189.compute-1.amazonaws.com
+
+
+------------------------------------------------------------------------------
+1. RESTART THE PROJECT
+------------------------------------------------------------------------------
+
+# Normal restart
+sudo systemctl restart elite-ivr
+sudo systemctl status elite-ivr --no-pager
+
+# If it has been crash-looping and systemd marked it "failed", clear first:
+sudo systemctl reset-failed elite-ivr
+sudo systemctl restart elite-ivr
+
+
+------------------------------------------------------------------------------
+2. SEE LOGS
+------------------------------------------------------------------------------
+
+# Tail live (most useful — Ctrl+C to exit)
+sudo journalctl -u elite-ivr -f
+
+# Last N lines (no follow)
+sudo journalctl -u elite-ivr -n 200 --no-pager
+
+# Errors only
+sudo journalctl -u elite-ivr -p err --no-pager
+
+# Since a time
+sudo journalctl -u elite-ivr --since "10 min ago" --no-pager
+sudo journalctl -u elite-ivr --since today --no-pager
+
+# Quick service health
+sudo systemctl status elite-ivr --no-pager
+
+
+------------------------------------------------------------------------------
+3. STOP THE PROJECT
+------------------------------------------------------------------------------
+
+# Stop just this run
+sudo systemctl stop elite-ivr
+
+# Stop and prevent auto-start on boot
+sudo systemctl stop elite-ivr
+sudo systemctl disable elite-ivr
+
+# Bring it back later
+sudo systemctl enable --now elite-ivr
+
+
+------------------------------------------------------------------------------
+SUPPORTING SERVICES (Caddy + Ollama)
+------------------------------------------------------------------------------
+
+# Caddy (TLS reverse proxy in front of the app)
+sudo systemctl restart caddy
+sudo journalctl -u caddy -f
+sudo systemctl stop caddy
+
+# Ollama (local LLM — qwen2.5:1.5b)
+sudo systemctl restart ollama
+sudo journalctl -u ollama -f
+sudo systemctl stop ollama
+
+# Status of all three at once
+systemctl status elite-ivr ollama caddy --no-pager
+
+NOTE: elite-ivr requires ollama (Requires=ollama.service in the unit).
+      If Ollama is stopped, elite-ivr will fail to start. Start Ollama first.
+
+
+------------------------------------------------------------------------------
+QUICK HEALTH CHECKS
+------------------------------------------------------------------------------
+
+# From the server itself
+curl http://127.0.0.1:8000/health                   # → {"status":"ok"}
+sudo ss -ltnp | grep 8000                           # uvicorn listening?
+
+# From your Mac (over the public domain via Caddy)
+curl -i https://elite-ivr-poc.duckdns.org/health
+curl -s -X POST https://elite-ivr-poc.duckdns.org/voice
+
+
+------------------------------------------------------------------------------
+DEPLOY A CODE UPDATE
+------------------------------------------------------------------------------
+
+cd /opt/elite-ivr
+git pull origin main
+source .venv/bin/activate
+pip install -r requirements.txt
+sudo systemctl restart elite-ivr
+sudo journalctl -u elite-ivr -f
+
+
+------------------------------------------------------------------------------
+KEY PATHS ON THE SERVER
+------------------------------------------------------------------------------
+
+Project dir          /opt/elite-ivr
+Virtualenv           /opt/elite-ivr/.venv
+Env file             /opt/elite-ivr/.env
+Audio clips          /opt/elite-ivr/audio_files
+Intent model         /opt/elite-ivr/intent_model.bin
+Dummy data           /opt/elite-ivr/dummy_data.json
+Systemd unit         /etc/systemd/system/elite-ivr.service
+Caddy config         /etc/caddy/Caddyfile
+Caddy access log     /var/log/caddy/elite-ivr.log
+
+
+uvicorn main:app --reload --port 8000
+
+source .venv/bin/activate
+
+ngrok http 8000
+
+
+
+order_taking_app/
+# uvicorn main:app --reload --port 8000
+
+
+
+python3 -m venv .venv
+
+
+
+prod app
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+SENSITIVE CONFIG
+
+python -m app.services.intent_service retrain
+
+
+alembic upgrade head        # apply pending migrations
+alembic current             # see where the DB is at
+alembic history             # full history
+alembic downgrade -1        # undo last migration
+
+Make a new migration after you change db/models.py:
+
+alembic revision --autogenerate -m "describe the change"
+
+git worktree remove .claude/worktrees/gracious-merkle-693e12
+
+
+cd /Users/tariqrasheed/workspace/elite/ivr_poc/elite_ai_ivr_agent_poc
+
+python -c "
+from datetime import datetime
+from services.llm.pickup_date_time import extract_pickup_date_time_openai
+
+d, t = extract_pickup_date_time_openai(
+    'tomorrow at five pm',
+    datetime(2026, 5, 15),
+)
+print('date:', d, 'time:', t)
+"
+
+
+
+python -c "
+from services.text_to_speech_in_memory_service import text_to_speech_in_memory
+k = text_to_speech_in_memory('Hello, this is a quick TTS test.', 'cli_test_clip')
+print('cached as:', k)
+"
+
+curl -X POST http://localhost:8000/gen-audio-in-memory \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello from in-memory TTS", "file_name": "my_runtime_clip.mp3"}'
+
+
+# Use the built-in transcript list
+python3 -m scripts.test_duckling_pickup_date
+
+# Try one or more transcripts of your own
+python3 -m scripts.test_duckling_pickup_date "pick me up tomorrow" "next Monday please"
+
+# Pin a reference time for relative-date tests
+python3 -m scripts.test_duckling_pickup_date --reference-time 2026-05-27T10:00 "tomorrow"
+
+# Verbose (DEBUG) logging
+python3 -m scripts.test_duckling_pickup_date -v "the 3rd of June"

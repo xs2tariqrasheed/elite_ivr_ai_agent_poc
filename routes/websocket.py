@@ -2,7 +2,7 @@
 from fastapi import APIRouter, WebSocket
 
 from configs.settings import settings
-from db import get_account
+from db.accounts import get_account
 from services.voice_session import VoiceSession
 
 router = APIRouter()
