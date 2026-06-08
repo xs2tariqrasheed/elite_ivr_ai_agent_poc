@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit account" if account else "New account" }}{% endblock %}
+{% block body %}
+<div class="row">
+  <h1>{{ "Edit account" if account else "New account" }}</h1>
+  <a class="btn" href="/admin">Back</a>
+</div>
+<div class="card" style="max-width:560px;">
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post"
+        action="{{ '/admin/accounts/' ~ account.id if account else '/admin/accounts' }}">
+    <label for="account_number">Account number *</label>
+    <input type="text" id="account_number" name="account_number" required
+           value="{{ account.account_number if account else '' }}" />
+
+    <label for="name">Name *</label>
+    <input type="text" id="name" name="name" required
+           value="{{ account.name if account else '' }}" />
+
+    <label for="cid">CID</label>
+    <input type="text" id="cid" name="cid"
+           value="{{ account.cid or '' if account else '' }}" />
+
+    <label for="phone">Phone</label>
+    <input type="text" id="phone" name="phone"
+           value="{{ account.phone or '' if account else '' }}" />
+
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email"
+           value="{{ account.email or '' if account else '' }}" />
+
+    <div style="margin-top:20px; display:flex; gap:10px;">
+      <button class="btn btn-primary" type="submit">Save</button>
+      <a class="btn" href="/admin">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

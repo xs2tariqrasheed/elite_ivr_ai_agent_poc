@@ -22,6 +22,10 @@ class Settings:
     twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")
     twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
     twilio_stream_ws_url: str = os.getenv("TWILIO_STREAM_WS_URL", "")
+    # Passcode that gates the /admin CRUD frontend, plus the secret used to sign
+    # the login session cookie.
+    passcode: str = os.getenv("PASSCODE", "")
+    session_secret: str = os.getenv("SESSION_SECRET", "change-me-dev-secret")
 
 
 @dataclass(frozen=True)

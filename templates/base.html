@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Admin{% endblock %}</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --muted:#94a3b8;
+            --accent:#6366f1; --danger:#ef4444; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+           background:var(--bg); color:var(--txt); }
+    a { color:var(--accent); text-decoration:none; }
+    .wrap { max-width:960px; margin:0 auto; padding:24px 16px; }
+    nav { display:flex; gap:16px; align-items:center; padding:14px 16px; background:var(--card);
+          border-bottom:1px solid var(--line); }
+    nav .brand { font-weight:700; }
+    nav .spacer { flex:1; }
+    h1 { font-size:1.4rem; margin:0 0 16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:0.92rem; }
+    th { color:var(--muted); font-weight:600; }
+    .btn { display:inline-block; padding:8px 14px; border-radius:8px; border:1px solid var(--line);
+           background:transparent; color:var(--txt); cursor:pointer; font-size:0.9rem; }
+    .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .btn-danger { background:var(--danger); border-color:var(--danger); color:#fff; }
+    .btn-sm { padding:5px 10px; font-size:0.82rem; }
+    .actions { display:flex; gap:8px; align-items:center; }
+    form.inline { display:inline; }
+    .row { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    label { display:block; margin:14px 0 6px; color:var(--muted); font-size:0.85rem; }
+    input[type=text], input[type=email], input[type=password] {
+      width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line);
+      background:var(--bg); color:var(--txt); font-size:0.95rem; }
+    .error { background:rgba(239,68,68,.12); border:1px solid var(--danger); color:#fecaca;
+             padding:10px 12px; border-radius:8px; margin-bottom:14px; font-size:0.9rem; }
+    .muted { color:var(--muted); }
+    .empty { color:var(--muted); padding:24px; text-align:center; }
+  </style>
+</head>
+<body>
+  {% block nav %}
+  <nav>
+    <span class="brand">IVR Admin</span>
+    <a href="/admin">Accounts</a>
+    <a href="/admin/reservations">Reservations</a>
+    <span class="spacer"></span>
+    <a href="/admin/logout">Logout</a>
+  </nav>
+  {% endblock %}
+  <div class="wrap">
+    {% block body %}{% endblock %}
+  </div>
+</body>
+</html>

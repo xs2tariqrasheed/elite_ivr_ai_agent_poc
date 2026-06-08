@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Reservations{% endblock %}
+{% block body %}
+<div class="row">
+  <h1>Reservations</h1>
+  <span class="muted">{{ reservations | length }} total</span>
+</div>
+<div class="card">
+  {% if reservations %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Account</th><th>Name</th><th>Pickup date</th><th>Time</th>
+        <th>Pickup</th><th>Drop-off</th><th>Created</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in reservations %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>
+          {% if r.account %}{{ r.account.name }}<br><span class="muted">{{ r.account.account_number }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>{{ r.first_name }} {{ r.last_name }}</td>
+        <td>{{ r.pickup_date.isoformat() }}</td>
+        <td>{{ r.pickup_time.strftime("%H:%M") }}</td>
+        <td>{{ r.pickup_address }}</td>
+        <td>{{ r.drop_off_address }}</td>
+        <td class="muted">{{ r.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>
+          <form class="inline" method="post" action="/admin/reservations/{{ r.id }}/delete"
+                onsubmit="return confirm('Delete reservation #{{ r.id }}?');">
+            <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No reservations.</div>
+  {% endif %}
+</div>
+{% endblock %}

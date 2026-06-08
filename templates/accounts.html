@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Accounts{% endblock %}
+{% block body %}
+<div class="row">
+  <h1>Accounts</h1>
+  <a class="btn btn-primary" href="/admin/accounts/new">+ New account</a>
+</div>
+<div class="card">
+  {% if accounts %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Account #</th><th>Name</th><th>CID</th>
+        <th>Phone</th><th>Email</th><th>Reservations</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in accounts %}
+      <tr>
+        <td>{{ a.id }}</td>
+        <td>{{ a.account_number }}</td>
+        <td>{{ a.name }}</td>
+        <td>{{ a.cid or "—" }}</td>
+        <td>{{ a.phone or "—" }}</td>
+        <td>{{ a.email or "—" }}</td>
+        <td>{{ a.reservations | length }}</td>
+        <td>
+          <div class="actions">
+            <a class="btn btn-sm" href="/admin/accounts/{{ a.id }}/edit">Edit</a>
+            <form class="inline" method="post" action="/admin/accounts/{{ a.id }}/delete"
+                  onsubmit="return confirm('Delete account {{ a.account_number }} and all its reservations?');">
+              <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No accounts yet. Create the first one.</div>
+  {% endif %}
+</div>
+{% endblock %}

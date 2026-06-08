@@ -11,9 +11,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from websockets.exceptions import ConnectionClosedOK
 
+from configs.settings import settings
+from db import models  # noqa: F401 - ensure models register on Base before create_all
+from db.database import Base, engine
 from routes.accounts import router as accounts_router
+from routes.admin import router as admin_router
 from routes.health import router as health_router
 from routes.twilio import router as twilio_router
 from routes.websocket import router as ws_router
@@ -46,6 +51,7 @@ async def lifespan(app: FastAPI):
         (previous or loop_.default_exception_handler)(context)
 
     loop.set_exception_handler(handler)
+    Base.metadata.create_all(bind=engine)
     yield
     loop.set_exception_handler(previous)
 
@@ -57,9 +63,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Signs the login-session cookie used by the /admin frontend.
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
 
 app.include_router(health_router)
 app.include_router(accounts_router)
+app.include_router(admin_router)
 app.include_router(ws_router)
 app.include_router(twilio_router)
 
