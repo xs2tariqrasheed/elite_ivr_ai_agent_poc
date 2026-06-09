@@ -104,3 +104,23 @@ class AssemblyAIStream:
             except Exception:
                 pass
             self.ws = None
+
+
+def build_stt(settings, *, encoding: str, sample_rate: int):
+    """Construct the STT stream for the configured provider.
+
+    Both backends expose the same interface (connect / send_audio / async
+    iteration of event dicts / close), so callers stay provider-agnostic. Select
+    via Settings.stt_provider ("assemblyai" or "deepgram").
+    """
+    provider = (settings.stt_provider or "assemblyai").lower()
+    if provider == "deepgram":
+        # Imported lazily so the AssemblyAI path doesn't depend on it.
+        from services.stt_deepgram import DeepgramStream
+
+        return DeepgramStream(
+            settings.deepgram_api_key, encoding=encoding, sample_rate=sample_rate
+        )
+    return AssemblyAIStream(
+        settings.assemblyai_api_key, encoding=encoding, sample_rate=sample_rate
+    )

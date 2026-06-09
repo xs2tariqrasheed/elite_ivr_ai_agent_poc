@@ -10,6 +10,11 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     assemblyai_api_key: str = os.getenv("ASSEMBLYAI_API_KEY", "")
+    deepgram_api_key: str = os.getenv("DEEPGRAM_API_KEY", "")
+    # Which speech-to-text backend the pipeline uses: "assemblyai" or "deepgram".
+    # Both expose the same stream interface (see services/stt.py:build_stt), so
+    # swapping providers needs only this env var.
+    stt_provider: str = os.getenv("STT_PROVIDER", "assemblyai")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")
     elevenlabs_voice_id: str = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
