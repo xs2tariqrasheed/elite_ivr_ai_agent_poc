@@ -12,7 +12,7 @@ from agents.registry import build_agent
 from configs.settings import BROWSER_AUDIO, AudioFormat, Settings
 from services.audio_bridge import AudioBridge
 from services.pipeline_state import PipelineState
-from services.stt import AssemblyAIStream
+from services.stt import build_stt
 from services.turn_handler import TurnHandler
 
 log = logging.getLogger("voice")
@@ -32,8 +32,8 @@ class VoiceSession:
         self._client = client
         self._settings = settings
         fmt = audio_format or BROWSER_AUDIO
-        self._stt = AssemblyAIStream(
-            settings.assemblyai_api_key,
+        self._stt = build_stt(
+            settings,
             encoding=fmt.stt_encoding,
             sample_rate=fmt.stt_sample_rate,
         )
@@ -52,10 +52,16 @@ class VoiceSession:
 
     async def run(self) -> None:
         """Validate keys, connect STT, then run the pipeline until disconnect."""
+        provider = (self._settings.stt_provider or "assemblyai").lower()
+        stt_key = (
+            ("DEEPGRAM_API_KEY", self._settings.deepgram_api_key)
+            if provider == "deepgram"
+            else ("ASSEMBLYAI_API_KEY", self._settings.assemblyai_api_key)
+        )
         missing = [
             name
             for name, val in (
-                ("ASSEMBLYAI_API_KEY", self._settings.assemblyai_api_key),
+                stt_key,
                 ("OPENAI_API_KEY", self._settings.openai_api_key),
                 ("ELEVENLABS_API_KEY", self._settings.elevenlabs_api_key),
             )
@@ -71,7 +77,7 @@ class VoiceSession:
 
         try:
             await self._stt.connect()
-            log.info("AssemblyAI stream connected")
+            log.info("%s stream connected", provider)
         except Exception as exc:  # noqa: BLE001
             log.error("STT connect failed: %s", exc)
             traceback.print_exc()
