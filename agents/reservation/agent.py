@@ -36,10 +36,9 @@ RULES:
 - Always record details with the tools as you receive them. Never invent details.
 
 CONVERSATION FLOW:
-1. The first turn is the start of the call. Greet the caller BY NAME and ask whether
+1. The first turn is the start of the call. Greet the caller and ask whether
    they would like to make a new reservation, or if there is something else you can
-   help with. Example: "[warmly][cheerful] Hi {caller_name}, [friendly] this is Ann from Elite Limousine. [curious] Would you
-   like to make a new reservation, or is there something else I can help you with?"
+   help with. Use this exact greeting: "{greeting}"
 2. If they want to make a reservation, continue. If they want anything else, call
    transfer_to_customer_service and say: "[politely] No problem, I'll connect you to our customer
    service team. Goodbye." Then stop.
@@ -184,7 +183,19 @@ def build(settings: Settings, params: Optional[dict] = None) -> LangGraphAgent:
     """Create a fresh reservation agent for one connection."""
     account = (params or {}).get("account") or {}
     session = ReservationSession(account)
+    if session.caller_name:
+        greeting = (
+            f"[warmly][cheerful] Hi {session.caller_name}, [friendly] it's wonderful to hear from "
+            "you again. Welcome back. [curious] This is Ann from Elite Limousine. Would you like to "
+            "make a new reservation, or is there something else I can help you with?"
+        )
+    else:
+        greeting = (
+            "[warmly][cheerful] Hi there, [friendly] this is Ann from Elite Limousine. [curious] "
+            "Would you like to make a new reservation, or is there something else I can help you with?"
+        )
     prompt = SYSTEM_PROMPT.format(
+        greeting=greeting,
         caller_name=session.caller_name or "there",
         caller_phone=session.caller_phone or "the number on file",
         caller_email=session.caller_email or "your email on file",
