@@ -8,6 +8,7 @@ from fastapi import WebSocket
 
 from agents.base import VoiceAgent
 from configs.settings import Settings
+from services.gap_filler import random_gap_filler
 from services.pipeline_state import PipelineState
 from services.tts import stream_tts_input
 
@@ -83,6 +84,22 @@ class TurnHandler:
         self._state.speaking_until += len(chunk) / bps
         await self._client.send_bytes(chunk)
 
+    async def _play_gap_filler(self, bps: int) -> None:
+        """Play a random pre-decoded gap filler to mask agent processing latency.
+
+        Sent before the LLM stream starts, so the caller hears an acknowledgement
+        while the agent works. Routed through `_send_audio`, which advances the
+        half-duplex deadline so STT stays muted for the clip's duration and the
+        filler doesn't echo back into the transcript. Split into ~100 ms frames so
+        Twilio plays it smoothly rather than as one oversized media message.
+        """
+        audio = random_gap_filler(self._tts_output_format)
+        if not audio:
+            return
+        step = max(2, (bps // 10) & ~1)  # ~100 ms, even (PCM16 is 2 bytes/sample)
+        for i in range(0, len(audio), step):
+            await self._send_audio(audio[i:i + step], bps)
+
     async def _speak(self, text: str, bps: int) -> None:
         """Synthesize and play a fixed line (used for the no-reply fallback)."""
         async def one():
@@ -97,7 +114,10 @@ class TurnHandler:
             await self._send_audio(chunk, bps)
 
     async def handle_turn(
-        self, text: str, user_stopped_at: float | None = None
+        self,
+        text: str,
+        user_stopped_at: float | None = None,
+        gap_filler: bool = False,
     ) -> None:
         """Invoke the agent on `text`, then stream the TTS reply to the browser."""
         await self._client.send_json({"type": "speaking_start"})
@@ -107,6 +127,11 @@ class TurnHandler:
         collected: list[str] = []
         stream_failed = False
         bps = _BYTES_PER_SECOND.get(self._tts_output_format, 32000)
+        # Mask the agent's processing latency: the caller hears a short filler
+        # immediately while the LLM runs in the background below. Skipped for the
+        # opening greeting (gap_filler=False) since nothing is being processed.
+        if gap_filler:
+            await self._play_gap_filler(bps)
         t_start = time.monotonic()
         t_first_token: float | None = None
         try:

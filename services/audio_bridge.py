@@ -38,23 +38,30 @@ class AudioBridge:
         self._client = client
         self._stt = stt
         self._state = state
-        self._on_turn = on_turn  # handle_turn(text, user_stopped_at=...)
+        self._on_turn = on_turn  # handle_turn(text, user_stopped_at=..., gap_filler=...)
         # Turns are queued and run one at a time. The pipeline is half-duplex and
         # never interrupts the bot, so overlapping turns would otherwise run
         # concurrently — sharing the agent's memory thread and the single
         # outbound audio stream — and the replies would interleave out of sync.
-        self._turns: asyncio.Queue[tuple[str, float | None]] = asyncio.Queue()
+        self._turns: asyncio.Queue[tuple[str, float | None, bool]] = asyncio.Queue()
 
-    def enqueue_turn(self, text: str, user_stopped_at: float | None = None) -> None:
-        self._turns.put_nowait((text, user_stopped_at))
+    def enqueue_turn(
+        self,
+        text: str,
+        user_stopped_at: float | None = None,
+        gap_filler: bool = False,
+    ) -> None:
+        self._turns.put_nowait((text, user_stopped_at, gap_filler))
 
     async def turn_worker(self) -> None:
         """Run queued turns strictly in order, one fully finishing before the next."""
         while True:
-            text, user_stopped_at = await self._turns.get()
+            text, user_stopped_at, gap_filler = await self._turns.get()
             log.info("Turn worker start: %r", text)
             task = asyncio.create_task(
-                self._on_turn(text, user_stopped_at=user_stopped_at)
+                self._on_turn(
+                    text, user_stopped_at=user_stopped_at, gap_filler=gap_filler
+                )
             )
             self._state.turn_task = task
             try:
@@ -177,4 +184,5 @@ class AudioBridge:
                 "Enqueue turn order=%s qsize=%s text=%r",
                 turn_order, self._turns.qsize(), transcript,
             )
-            self.enqueue_turn(transcript, user_stopped_at)
+            # Real caller turn: play a gap filler while the agent processes it.
+            self.enqueue_turn(transcript, user_stopped_at, gap_filler=True)
