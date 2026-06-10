@@ -17,6 +17,7 @@ from websockets.exceptions import ConnectionClosedOK
 from configs.settings import settings
 from db import models  # noqa: F401 - ensure models register on Base before create_all
 from db.database import Base, engine
+from services.gap_filler import load as load_gap_fillers
 from routes.accounts import router as accounts_router
 from routes.admin import router as admin_router
 from routes.health import router as health_router
@@ -52,6 +53,9 @@ async def lifespan(app: FastAPI):
 
     loop.set_exception_handler(handler)
     Base.metadata.create_all(bind=engine)
+    # Pre-decode the gap-filler clips into the wire formats once, so they're ready
+    # to play the instant a caller's turn ends (see services.gap_filler).
+    await asyncio.to_thread(load_gap_fillers)
     yield
     loop.set_exception_handler(previous)
 
