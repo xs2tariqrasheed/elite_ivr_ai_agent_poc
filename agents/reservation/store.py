@@ -2,9 +2,10 @@
 
 Maps the free-form, in-call :class:`ReservationSession` onto the typed
 :class:`db.models.Reservation` columns: the spoken pickup date/time string is
-parsed into ``Date`` + ``Time``, and the caller's full name is split into
-first/last. Failures are logged (never raised) so a DB hiccup can't break an
-otherwise-completed call.
+parsed into ``Date`` + ``Time``. The schema has no confirmation-number column,
+so (POC hack) ``first_name`` stores the caller's full name and ``last_name``
+stores the confirmation number. Failures are logged (never raised) so a DB
+hiccup can't break an otherwise-completed call.
 """
 import logging
 
@@ -14,15 +15,6 @@ from db.database import SessionLocal
 from db.models import Reservation
 
 log = logging.getLogger("voice")
-
-
-def _split_name(full_name: str | None) -> tuple[str, str]:
-    parts = (full_name or "").strip().split()
-    if not parts:
-        return "", ""
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], " ".join(parts[1:])
 
 
 def save_reservation(session) -> bool:
@@ -50,11 +42,13 @@ def save_reservation(session) -> bool:
         log.error("Cannot parse pickup_datetime %r: %s", session.pickup_datetime, exc)
         return False
 
-    first, last = _split_name(session.caller_name)
+    # POC hack: the reservations table has no confirmation-number column, so we
+    # repurpose existing columns — first_name holds the caller's full name and
+    # last_name holds the confirmation number.
     reservation = Reservation(
         account_id=session.account_id,
-        first_name=first or "Unknown",
-        last_name=last,
+        first_name=(session.caller_name or "").strip() or "Unknown",
+        last_name=session.confirmation_number or "",
         pickup_date=pickup.date(),
         pickup_time=pickup.time(),
         pickup_address=session.pickup_address,

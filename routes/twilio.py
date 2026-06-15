@@ -64,6 +64,9 @@ async def twilio_stream(ws: WebSocket):
 
     params: dict = {}
     caller = transport.custom_parameters.get("from")
+    log.info("***** Caller Phone *****")
+    log.info(caller)
+    log.info("***** Caller Phone *****")
     if caller:
         account = get_account_by_phone(caller)
         if account is not None:

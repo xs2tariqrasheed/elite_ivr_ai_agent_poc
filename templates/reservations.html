@@ -10,7 +10,7 @@
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Account</th><th>Name</th><th>Pickup date</th><th>Time</th>
+        <th>#</th><th>Account</th><th>Name</th><th>Res. #</th><th>Pickup date</th><th>Time</th>
         <th>Pickup</th><th>Drop-off</th><th>Created</th><th></th>
       </tr>
     </thead>
@@ -22,7 +22,8 @@
           {% if r.account %}{{ r.account.name }}<br><span class="muted">{{ r.account.account_number }}</span>
           {% else %}<span class="muted">—</span>{% endif %}
         </td>
-        <td>{{ r.first_name }} {{ r.last_name }}</td>
+        <td>{{ r.first_name }}</td>
+        <td>{{ r.last_name }}</td>
         <td>{{ r.pickup_date.isoformat() }}</td>
         <td>{{ r.pickup_time.strftime("%H:%M") }}</td>
         <td>{{ r.pickup_address }}</td>
