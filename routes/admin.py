@@ -170,7 +170,7 @@ async def reservations_list(request: Request, db: Session = Depends(get_db)):
     reservations = db.scalars(
         select(Reservation)
         .options(selectinload(Reservation.account))
-        .order_by(Reservation.pickup_date, Reservation.pickup_time)
+        .order_by(Reservation.id.desc())
     ).all()
     return templates.TemplateResponse(
         request, "reservations.html", {"reservations": reservations}
