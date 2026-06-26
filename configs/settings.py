@@ -20,7 +20,7 @@ class Settings:
     elevenlabs_voice_id: str = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     # Which agent the pipeline runs; see agents/registry.py.
-    agent: str = os.getenv("AGENT", "reservation")
+    agent: str = os.getenv("AGENT", "quick_reservation")
     # Twilio. account_sid/auth_token are used by the REST helpers / request
     # validation; stream_ws_url is the public wss:// address Twilio dials into
     # for Media Streams (returned in the TwiML at /twilio/voice).

@@ -7,6 +7,7 @@ from typing import Callable, Dict, Optional
 
 from agents.base import VoiceAgent
 from agents.order import agent as order_agent
+from agents.quick_reservation import agent as quick_reservation_agent
 from agents.reservation import agent as reservation_agent
 from configs.settings import Settings
 
@@ -15,6 +16,7 @@ from configs.settings import Settings
 _BUILDERS: Dict[str, Callable[[Settings, Optional[dict]], VoiceAgent]] = {
     "order": order_agent.build,
     "reservation": reservation_agent.build,
+    "quick_reservation": quick_reservation_agent.build,
 }
 
 
