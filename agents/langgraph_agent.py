@@ -7,7 +7,12 @@ construct it directly from an agent's `build` factory.
 import logging
 from typing import AsyncIterator, Callable, Optional, Sequence
 
-from langchain_core.messages import AIMessage, AIMessageChunk, RemoveMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    RemoveMessage,
+)
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -39,7 +44,7 @@ class LangGraphAgent:
         # bounds the worst case to a few seconds.
         llm = ChatOpenAI(
             model=model,
-            temperature=temperature,
+            temperature=1,
             streaming=True,
             timeout=8,
             max_retries=2,
@@ -122,7 +127,9 @@ class LangGraphAgent:
         except Exception as exc:  # noqa: BLE001
             log.warning("Could not roll back reply: %s", exc)
 
-    async def rollback_barge(self, pre_ids: Optional[set] = None) -> None:
+    async def rollback_barge(
+        self, pre_ids: Optional[set] = None, *, keep_user_message: bool = False
+    ) -> None:
         """Restore memory to the exact pre-turn checkpoint after a barge-in.
 
         Unlike `rollback` (which drops only the last spoken reply and keeps the
@@ -137,7 +144,20 @@ class LangGraphAgent:
         matching ToolMessage(s) are always removed together — never leaving an
         orphaned tool_call (which would 400 the next OpenAI request). Tool side
         effects already executed (e.g. a saved reservation) are NOT undone.
+
+        With `keep_user_message=True` the caller's utterance is PRESERVED. Use
+        this when the turn was interrupted before the agent produced any spoken
+        reply: the caller did not interrupt a reply, they simply kept talking
+        (e.g. STT split one sentence into fragments on a pause, and each fragment
+        started a turn whose gap filler the continued speech "barged"). Discarding
+        those fragments is what made the agent lose the pickup address and confuse
+        it with the drop-off. Only this turn's assistant/tool messages (an
+        abandoned partial reply, or an orphaned tool-call pair) are removed; the
+        HumanMessage(s) survive so the fragment carries into the next turn.
         """
+        if keep_user_message:
+            await self._rollback_keep_user(pre_ids)
+            return
         if not pre_ids:
             # No usable checkpoint (None, or empty — e.g. the opening greeting,
             # whose pre-turn memory was empty). We can't tell this turn's
@@ -164,3 +184,37 @@ class LangGraphAgent:
                 )
         except Exception as exc:  # noqa: BLE001
             log.warning("Could not roll back interrupted turn: %s", exc)
+
+    async def _rollback_keep_user(self, pre_ids: Optional[set]) -> None:
+        """Remove an interrupted turn's reply/tool messages but keep its utterance.
+
+        Walks contiguously from the tail, removing trailing messages until it
+        reaches a HumanMessage (this turn's caller utterance) or a message from a
+        prior turn (`pre_ids`), at which point it stops — so the caller's words
+        are preserved and earlier turns are never touched. Stopping at the first
+        HumanMessage also keeps the walk contiguous, so a removed ToolMessage is
+        always paired with its tool-call AIMessage (no orphan that would 400 the
+        next request). In the common case (interrupted during the gap filler with
+        no reply yet) only the lone HumanMessage exists, so nothing is removed.
+        """
+        try:
+            state = await self._agent.aget_state(self._config)
+            to_remove = []
+            for m in reversed(state.values.get("messages", [])):
+                mid = getattr(m, "id", None)
+                if mid is None:
+                    break
+                if pre_ids and mid in pre_ids:
+                    break
+                if isinstance(m, HumanMessage):
+                    # The caller's utterance for this turn — keep it, and stop so
+                    # we never reach into earlier turns.
+                    break
+                to_remove.append(mid)
+            if to_remove:
+                await self._agent.aupdate_state(
+                    self._config,
+                    {"messages": [RemoveMessage(id=mid) for mid in to_remove]},
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not roll back interrupted turn (keep-user): %s", exc)
