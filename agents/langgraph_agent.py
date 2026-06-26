@@ -83,7 +83,7 @@ class LangGraphAgent:
     def snapshot(self) -> Optional[dict]:
         return self._snapshot_fn() if self._snapshot_fn else None
 
-    async def checkpoint(self) -> set:
+    async def checkpoint(self) -> Optional[set]:
         try:
             state = await self._agent.aget_state(self._config)
             return {
@@ -92,7 +92,11 @@ class LangGraphAgent:
                 if getattr(m, "id", None)
             }
         except Exception:  # noqa: BLE001
-            return set()
+            # Return None (not an empty set) so a lookup failure routes
+            # rollback_barge to its safe fallback rather than the
+            # remove-everything-not-in-pre_ids branch (an empty set would match
+            # nothing, wiping the whole conversation).
+            return None
 
     async def rollback(self, pre_ids: Optional[set] = None) -> None:
         """Drop the agent's last spoken reply from memory.
@@ -117,3 +121,46 @@ class LangGraphAgent:
                 break
         except Exception as exc:  # noqa: BLE001
             log.warning("Could not roll back reply: %s", exc)
+
+    async def rollback_barge(self, pre_ids: Optional[set] = None) -> None:
+        """Restore memory to the exact pre-turn checkpoint after a barge-in.
+
+        Unlike `rollback` (which drops only the last spoken reply and keeps the
+        user message), this removes EVERY message added by the interrupted turn —
+        the abandoned assistant reply, the caller utterance that triggered it,
+        and any tool-call/ToolMessage pairs from the turn — so the caller's
+        redo starts from a clean slate (the user's "prune and redo" requirement).
+
+        It removes all trailing messages whose id is not in `pre_ids`, walking
+        contiguously from the tail back to the first id present in `pre_ids`.
+        Because the walk is contiguous, an AIMessage carrying tool_calls and its
+        matching ToolMessage(s) are always removed together — never leaving an
+        orphaned tool_call (which would 400 the next OpenAI request). Tool side
+        effects already executed (e.g. a saved reservation) are NOT undone.
+        """
+        if not pre_ids:
+            # No usable checkpoint (None, or empty — e.g. the opening greeting,
+            # whose pre-turn memory was empty). We can't tell this turn's
+            # messages apart from prior ones, and removing "everything not in an
+            # empty set" would wipe the whole conversation — so fall back to
+            # dropping just the last spoken reply.
+            await self.rollback(None)
+            return
+        try:
+            state = await self._agent.aget_state(self._config)
+            to_remove = []
+            for m in reversed(state.values.get("messages", [])):
+                mid = getattr(m, "id", None)
+                if mid is None:
+                    # Can't address it for removal; stop to stay contiguous.
+                    break
+                if mid in pre_ids:
+                    break
+                to_remove.append(mid)
+            if to_remove:
+                await self._agent.aupdate_state(
+                    self._config,
+                    {"messages": [RemoveMessage(id=mid) for mid in to_remove]},
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not roll back interrupted turn: %s", exc)

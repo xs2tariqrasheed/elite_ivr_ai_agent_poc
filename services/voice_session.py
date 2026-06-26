@@ -46,7 +46,7 @@ class VoiceSession:
             tts_output_format=fmt.tts_output_format,
         )
         self._bridge = AudioBridge(
-            client, self._stt, state, self._turn_handler.handle_turn
+            client, self._stt, state, self._turn_handler.handle_turn, settings
         )
         self._state = state
 
@@ -87,6 +87,7 @@ class VoiceSession:
             await self._client.close()
             return
 
+        tasks: list[asyncio.Task] = []
         try:
             await self._client.send_json({"type": "ready"})
             # Let the agent speak first (e.g. a greeting) by queuing one synthetic
@@ -95,11 +96,25 @@ class VoiceSession:
             opening = getattr(self._agent, "opening_trigger", None)
             if opening:
                 self._bridge.enqueue_turn(opening)
-            await asyncio.gather(
-                self._bridge.browser_to_stt(),
-                self._bridge.stt_to_agent(),
-                self._bridge.turn_worker(),
+            # Own the three pipeline tasks explicitly. asyncio.gather does NOT
+            # cancel its siblings when one raises, so on a caller disconnect the
+            # worker (parked on an empty turn queue) would leak forever. Wait for
+            # the first task to finish — a disconnect (browser_to_stt raises) or
+            # the STT stream ending (stt_to_agent returns) — then tear the rest
+            # down in `finally`.
+            tasks = [
+                asyncio.create_task(self._bridge.browser_to_stt()),
+                asyncio.create_task(self._bridge.stt_to_agent()),
+                asyncio.create_task(self._bridge.turn_worker()),
+            ]
+            done, _pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED
             )
+            # Surface a genuine error (not a normal disconnect) for logging.
+            for d in done:
+                exc = d.exception()
+                if exc is not None and not isinstance(exc, WebSocketDisconnect):
+                    raise exc
         except WebSocketDisconnect:
             log.info("Browser disconnected")
         except Exception as exc:  # noqa: BLE001
@@ -111,13 +126,21 @@ class VoiceSession:
                 pass
         finally:
             # Mark closed first so the in-flight turn treats teardown errors as
-            # expected, then cancel it so it doesn't run on as an orphan task.
+            # expected and the worker re-raises (rather than treating its cancel
+            # as a barge). Then cancel EVERY pipeline task — including the worker,
+            # which would otherwise block forever on the empty turn queue — plus
+            # the in-flight turn, and await them all.
             self._state.closed = True
             t = self._state.turn_task
-            if t is not None and not t.done():
-                t.cancel()
+            to_cancel = list(tasks)
+            if t is not None and t not in to_cancel:
+                to_cancel.append(t)
+            for task in to_cancel:
+                if not task.done():
+                    task.cancel()
+            for task in to_cancel:
                 try:
-                    await t
+                    await task
                 except BaseException:
                     pass
             await self._stt.close()

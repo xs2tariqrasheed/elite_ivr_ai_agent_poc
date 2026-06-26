@@ -71,18 +71,45 @@ class TurnHandler:
         self._settings = settings
         self._state = state
         self._tts_output_format = tts_output_format
+        # barge_generation captured at the start of the current turn; outbound
+        # audio is suppressed once the live generation moves past it. Turns run
+        # one at a time (AudioBridge.turn_worker), so a single field is safe.
+        self._gen = 0
+        # Whether this turn's playback onset has been marked yet (for the
+        # echo-onset guard). Set once on the first audio frame of the turn so a
+        # mid-reply TTS underrun can't keep re-arming the guard and suppressing
+        # barge detection for the rest of the reply.
+        self._onset_set = False
 
     async def _send_audio(self, chunk: bytes, bps: int) -> None:
         """Send one TTS chunk and advance the half-duplex playback deadline.
 
         STT stays muted until `speaking_until`, so projecting the playback end
         from the byte count keeps the agent's own audio out of the transcript.
+
+        Drops the chunk if a barge-in happened after this turn started
+        (`barge_generation` moved): a superseded chunk must not reach the
+        transport after the flush, nor re-advance `speaking_until` (which would
+        re-mute STT and swallow the caller's redo). The send is serialized
+        through `send_lock` so it can't interleave with the barge-in flush.
         """
+        if self._state.barge_generation != self._gen:
+            return
         play_at = time.monotonic()
         if self._state.speaking_until < play_at:
             self._state.speaking_until = play_at
+        if not self._onset_set:
+            # First audio frame of this turn — mark playback onset ONCE for the
+            # echo-onset guard. Doing this only once (not on every underrun)
+            # keeps the guard from continually re-arming mid-reply, which would
+            # otherwise suppress barge detection on a stuttery phone leg.
+            self._state.speaking_started_at = play_at
+            self._onset_set = True
         self._state.speaking_until += len(chunk) / bps
-        await self._client.send_bytes(chunk)
+        async with self._state.send_lock:
+            if self._state.barge_generation != self._gen:
+                return
+            await self._client.send_bytes(chunk)
 
     async def _play_gap_filler(self, bps: int) -> None:
         """Play a random pre-decoded gap filler to mask agent processing latency.
@@ -120,6 +147,11 @@ class TurnHandler:
         gap_filler: bool = False,
     ) -> None:
         """Invoke the agent on `text`, then stream the TTS reply to the browser."""
+        # Snapshot the barge generation; every outbound chunk this turn carries
+        # it, so a barge-in (which bumps the generation) silences this turn's
+        # remaining audio even if the task hasn't been cancelled yet.
+        self._gen = self._state.barge_generation
+        self._onset_set = False
         await self._client.send_json({"type": "speaking_start"})
         pre_ids = await self._agent.checkpoint()
 
@@ -129,8 +161,9 @@ class TurnHandler:
         bps = _BYTES_PER_SECOND.get(self._tts_output_format, 32000)
         # Mask the agent's processing latency: the caller hears a short filler
         # immediately while the LLM runs in the background below. Skipped for the
-        # opening greeting (gap_filler=False) since nothing is being processed.
-        if gap_filler:
+        # opening greeting (gap_filler=False) since nothing is being processed,
+        # and globally disable-able via Settings.gap_filler_enabled.
+        if gap_filler and self._settings.gap_filler_enabled:
             await self._play_gap_filler(bps)
         t_start = time.monotonic()
         t_first_token: float | None = None
@@ -165,6 +198,10 @@ class TurnHandler:
                 self._settings.elevenlabs_voice_id,
                 output_format=self._tts_output_format,
             ):
+                # Barged mid-reply: stop pulling/sending TTS at once. Closing the
+                # generator tears down the ElevenLabs HTTP stream cleanly.
+                if self._state.barge_generation != self._gen:
+                    break
                 if first:
                     first = False
                     now = time.monotonic()
@@ -188,28 +225,49 @@ class TurnHandler:
                     })
                 await self._send_audio(chunk, bps)
 
-            reply = "".join(collected).strip()
-            log.info("Turn reply complete: %r", reply)
-            if not reply:
-                # No spoken output — usually the LLM request stalled/timed out.
-                # Speak a fallback (via ElevenLabs, independent of OpenAI) so the
-                # caller can retry instead of hearing silence. Roll back the
-                # turn so the unanswered message doesn't linger in agent memory.
-                log.warning("Empty reply (stream_failed=%s); speaking fallback",
-                            stream_failed)
-                await self._speak(_FALLBACK_REPLY, bps)
-                await self._client.send_json({"type": "agent", "text": _FALLBACK_REPLY})
-                if not self._state.closed:
-                    await self._agent.rollback(pre_ids)
+            if self._state.barge_generation != self._gen:
+                # The loop above broke out on a barge-in: the turn finished only
+                # because its remaining chunks were suppressed. Skip the
+                # success/fallback side effects (spoken reply, snapshot, hangup)
+                # and let the rollback below restore the pre-turn state.
+                interrupted = True
+                log.info("Turn superseded by barge-in")
             else:
-                await self._client.send_json({"type": "agent", "text": reply})
-                snapshot = self._agent.snapshot()
-                if snapshot is not None:
-                    await self._client.send_json({"type": "state", "state": snapshot})
+                reply = "".join(collected).strip()
+                log.info("Turn reply complete: %r", reply)
+                if not reply:
+                    # No spoken output — usually the LLM request stalled/timed
+                    # out. Speak a fallback (via ElevenLabs, independent of
+                    # OpenAI) so the caller can retry instead of hearing silence.
+                    # Roll back the reply so the unanswered message doesn't
+                    # linger in agent memory.
+                    log.warning("Empty reply (stream_failed=%s); speaking fallback",
+                                stream_failed)
+                    await self._speak(_FALLBACK_REPLY, bps)
+                    await self._client.send_json(
+                        {"type": "agent", "text": _FALLBACK_REPLY}
+                    )
+                    if not self._state.closed:
+                        await self._agent.rollback(pre_ids)
+                else:
+                    await self._client.send_json({"type": "agent", "text": reply})
+                    snapshot = self._agent.snapshot()
+                    if snapshot is not None:
+                        await self._client.send_json(
+                            {"type": "state", "state": snapshot}
+                        )
 
         except asyncio.CancelledError:
+            if self._state.closed:
+                # Session teardown: re-raise so the turn worker awaiting this
+                # task observes the cancellation and exits. If we swallowed it
+                # here (as on the barge path), the worker's `await task` would
+                # return normally and it would block forever on the empty queue
+                # — asyncio.Task.cancel() delegates to the awaited child, so a
+                # swallowed cancel never propagates back to the worker.
+                raise
             interrupted = True
-            log.info("Turn cancelled (session teardown)")
+            log.info("Turn cancelled by barge-in")
         except Exception as exc:  # noqa: BLE001
             if self._state.closed:
                 log.info("Turn aborted after disconnect")
@@ -224,7 +282,10 @@ class TurnHandler:
                     pass
 
         if interrupted and not self._state.closed:
-            await self._agent.rollback(pre_ids)
+            # Barge-in (or any non-teardown interrupt): wipe the whole turn —
+            # abandoned reply, the caller utterance that triggered it, and any
+            # tool-call pairs — so the redo starts from the pre-turn checkpoint.
+            await self._agent.rollback_barge(pre_ids)
         try:
             await self._client.send_json({"type": "speaking_end"})
         except Exception:

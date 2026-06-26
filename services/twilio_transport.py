@@ -104,10 +104,26 @@ class TwilioTransport:
         """Drop pipeline control/UI messages that have no Twilio equivalent.
 
         The browser-only UI messages (partial/final/agent/state/timings/...) are
-        meaningless on a phone call, and the pipeline is half-duplex with no
-        barge-in, so there is no `interrupt`/`clear` flush to forward either.
+        meaningless on a phone call. The one control signal Twilio DOES honor —
+        flushing buffered playback on barge-in — is sent via `clear()`, not here.
         """
         return
+
+    async def clear(self) -> None:
+        """Flush Twilio's buffered outbound audio (barge-in).
+
+        Twilio Media Streams keep already-sent media frames in a playback buffer;
+        a `clear` event drops everything still queued so the caller stops hearing
+        the agent within one round trip when they interrupt. No-op until the
+        stream SID is known. Note: audio already past Twilio into the PSTN/handset
+        jitter buffer may still play for a few tens of milliseconds.
+        """
+        if self._stream_sid is None:
+            return
+        await self._ws.send_text(json.dumps({
+            "event": "clear",
+            "streamSid": self._stream_sid,
+        }))
 
     async def close(self) -> None:
         try:
