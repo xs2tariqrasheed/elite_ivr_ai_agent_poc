@@ -85,27 +85,29 @@ def live_turn(state):
 # --------------------------------------------------------------------------- #
 
 
-async def test_regime_b_fires_and_prunes():
+async def test_composing_does_not_barge():
+    """While the agent is composing (no audio on the wire yet), caller speech must
+    NOT cancel the in-flight turn — there is nothing to interrupt, and cancelling
+    would discard a turn that is about to answer (a slow multi-step turn would
+    otherwise be killed on a loop by an impatient "hello?"). The audio is still
+    forwarded to STT so the caller's words survive into the next turn."""
     state = PipelineState()
     bridge, stt, transport = make_bridge(state, make_settings())
     task = live_turn(state)
     state.greeting_active = False
-    # queue some stale turns that must be drained
-    bridge.enqueue_turn("stale-1", gap_filler=True)
-    bridge.enqueue_turn("stale-2", gap_filler=True)
+    bridge.enqueue_turn("queued-1", gap_filler=True)
     gen0 = state.barge_generation
 
-    for _ in range(3):  # min_frames
+    for _ in range(10):  # well past min_frames
         await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=False)
 
-    await asyncio.sleep(0)  # let the cancel land
-    assert state.barge_generation == gen0 + 1, "generation must bump exactly once"
-    assert transport.clears == 1, "transport must be flushed once"
-    assert state.speaking_until == 0.0, "STT must be un-muted"
-    assert bridge._turns.empty(), "stale queued turns must be drained"
-    assert task.cancelled(), "in-flight turn must be cancelled"
-    # Regime B feeds live audio to STT; no pre-roll replay.
-    assert stt.frames == [LOUD, LOUD, LOUD], "Regime B forwards live caller audio"
+    await asyncio.sleep(0)
+    assert state.barge_generation == gen0, "composing must not trigger a barge"
+    assert transport.clears == 0, "no flush while composing"
+    assert not task.cancelled(), "the in-flight turn must survive"
+    assert not bridge._turns.empty(), "queued turns must NOT be drained while composing"
+    assert stt.frames == [LOUD] * 10, "composing forwards live caller audio to STT"
+    task.cancel()
 
 
 async def test_regime_a_silences_then_replays_preroll():
@@ -149,10 +151,11 @@ async def test_debounce_blocks_short_burst():
     state = PipelineState()
     bridge, stt, transport = make_bridge(state, make_settings(barge_in_min_frames=3))
     live_turn(state)
+    state.speaking_started_at = 0.0  # echo guard already passed (guard=0)
     gen0 = state.barge_generation
 
     for _ in range(2):  # one short of the threshold
-        await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=False)
+        await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=True)
 
     assert state.barge_generation == gen0, "two frames must not trip a barge"
     assert transport.clears == 0
@@ -162,14 +165,15 @@ async def test_transient_resets_run():
     state = PipelineState()
     bridge, stt, transport = make_bridge(state, make_settings(barge_in_min_frames=3))
     live_turn(state)
+    state.speaking_started_at = 0.0  # echo guard already passed (guard=0)
     gen0 = state.barge_generation
 
     # loud, loud, QUIET (resets), loud, loud -> never 3 consecutive
-    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=False)
-    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=False)
-    await bridge._detect_barge_in(SILENCE, 0, 1000.0, audible=False)  # sub-threshold
-    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=False)
-    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=False)
+    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=True)
+    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=True)
+    await bridge._detect_barge_in(SILENCE, 0, 1000.0, audible=True)  # sub-threshold
+    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=True)
+    await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=True)
 
     assert state.barge_generation == gen0, "a sub-threshold frame must reset the run"
 
@@ -273,9 +277,10 @@ async def test_worker_survives_barge_runs_redo_then_teardown_ends_it():
     assert handled == ["first"]
     assert state.turn_task is not None and not state.turn_task.done()
 
-    # Caller barges while the turn is composing (Regime B).
+    # Caller barges while the agent is audible (Regime A) — e.g. over the reply.
+    state.speaking_started_at = 0.0  # echo guard already passed (guard=0)
     for _ in range(3):
-        await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=False)
+        await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=True)
     await asyncio.sleep(0.05)
     assert not worker.done(), "worker must survive a barge-in cancel"
 
@@ -297,7 +302,7 @@ async def test_worker_survives_barge_runs_redo_then_teardown_ends_it():
 
 async def main():
     tests = [
-        test_regime_b_fires_and_prunes,
+        test_composing_does_not_barge,
         test_regime_a_silences_then_replays_preroll,
         test_barge_during_playback_tail_no_live_turn,
         test_debounce_blocks_short_burst,

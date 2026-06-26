@@ -169,17 +169,23 @@ class AudioBridge:
     async def _detect_barge_in(
         self, data: bytes, level: int, now: float, audible: bool
     ) -> None:
-        """Forward one frame to STT and, while a turn is live, watch for a barge.
+        """Forward one frame to STT and, while the agent is audible, watch for a barge.
 
-        Two regimes, because the agent's reply is buffered whole before any audio
-        plays (services/tts.py), so the dominant interrupt window is "agent
-        composing, nothing audible yet":
+        Barge-in fires only while the agent is actually AUDIBLE (its gap filler or
+        buffered reply is on the wire) — that is the only state where the caller
+        has something to interrupt:
           - REGIME A (audible): agent audio on the wire — keep the echo defense
             (silence to STT) and detect only on energy above a high threshold,
-            after a brief onset guard.
-          - REGIME B (composing): no audio on the wire, so no echo — feed live
-            caller audio to STT and detect at the lower idle threshold.
-        A confirmed barge (debounced run) calls `trigger_barge_in` once.
+            after a brief onset guard. A confirmed barge (debounced run) calls
+            `trigger_barge_in` once.
+          - Composing (not audible): the agent is still running the LLM / tool
+            calls (or sitting in the gap between the filler and the buffered
+            reply) and has emitted no audio yet. Caller energy here is NOT a
+            barge — cancelling now would discard a turn that is about to answer,
+            and a slow multi-step turn would otherwise let an impatient "hello?"
+            kill it on a loop (the agent then never responds). Forward the live
+            caller audio so nothing they say is lost (it transcribes and queues
+            as the next turn); barge-in resumes the instant the agent is audible.
         """
         turn_live = (
             self._state.turn_task is not None and not self._state.turn_task.done()
@@ -200,32 +206,35 @@ class AudioBridge:
             await self._stt.send_audio(data)
             return
 
-        if audible:
-            armed = (
-                now - self._state.speaking_started_at
-                >= self._settings.barge_in_echo_guard_seconds
-            )
-            threshold = self._settings.barge_in_voice_level
-            await self._stt.send_audio(bytes(len(data)))  # silence (echo defense)
-        elif self._state.greeting_active:
-            # Opening greeting still composing — don't let call-start line noise
-            # cancel it before the caller has spoken. Listen, but don't detect.
+        if not audible:
+            # Composing (LLM/tool calls running, or the gap between the gap filler
+            # and the buffered reply): the agent has no audio on the wire, so there
+            # is nothing to interrupt. Don't detect a barge — just keep listening
+            # so the caller's words survive into the next turn. Barge-in resumes
+            # the moment the agent is audible again (Regime A).
             self._reset_barge_run()
-            await self._stt.send_audio(data)
-            return
-        else:
-            armed = True
-            threshold = self._settings.barge_in_voice_level_idle
+            if level >= _VOICE_LEVEL and now - self._barge_log_at >= 0.5:
+                self._barge_log_at = now
+                log.info("barge-watch composing level=%d (no detect)", level)
             await self._stt.send_audio(data)  # live (no echo while composing)
+            return
 
-        # Diagnostic heartbeat: while a turn is live, print the measured inbound
-        # level against the active threshold so barge sensitivity can be tuned
+        # REGIME A: agent audio on the wire.
+        armed = (
+            now - self._state.speaking_started_at
+            >= self._settings.barge_in_echo_guard_seconds
+        )
+        threshold = self._settings.barge_in_voice_level
+        await self._stt.send_audio(bytes(len(data)))  # silence (echo defense)
+
+        # Diagnostic heartbeat: while the agent is audible, print the measured
+        # inbound level against the threshold so barge sensitivity can be tuned
         # against real calls. Throttled to ~2/sec to avoid log spam.
         if now - self._barge_log_at >= 0.5:
             self._barge_log_at = now
             log.info(
-                "barge-watch regime=%s level=%d thr=%d armed=%s run=%d",
-                "A" if audible else "B", level, threshold, armed, self._barge_run,
+                "barge-watch regime=A level=%d thr=%d armed=%s run=%d",
+                level, threshold, armed, self._barge_run,
             )
 
         if self._barge_latched:
@@ -234,12 +243,11 @@ class AudioBridge:
             if self._barge_run == 0:
                 self._barge_run_started = now
             self._barge_run += 1
-            if audible:
-                # STT was fed silence for this real frame; keep it to replay
-                # after the barge so the caller's first words survive (#3).
-                self._barge_prebuffer.append(data)
-                if len(self._barge_prebuffer) > _PREBUFFER_MAX_FRAMES:
-                    self._barge_prebuffer.pop(0)
+            # STT was fed silence for this real frame; keep it to replay after the
+            # barge so the caller's first words survive (#3).
+            self._barge_prebuffer.append(data)
+            if len(self._barge_prebuffer) > _PREBUFFER_MAX_FRAMES:
+                self._barge_prebuffer.pop(0)
             elapsed_ms = (now - self._barge_run_started) * 1000
             if (
                 self._barge_run >= self._settings.barge_in_min_frames
@@ -247,8 +255,8 @@ class AudioBridge:
             ):
                 self._barge_latched = True
                 log.info(
-                    "Barge-in detected (regime=%s level=%d thr=%d)",
-                    "A" if audible else "B", level, threshold,
+                    "Barge-in detected (regime=A level=%d thr=%d)",
+                    level, threshold,
                 )
                 await self.trigger_barge_in()
         elif level < threshold:

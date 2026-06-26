@@ -74,9 +74,12 @@ class Settings:
     )
 
     # Play a short pre-recorded "one moment…" clip while the agent processes a
-    # caller's turn, to mask LLM/TTS latency. Disabled for now (set
-    # GAP_FILLER_ENABLED=true to re-enable).
-    gap_filler_enabled: bool = os.getenv("GAP_FILLER_ENABLED", "false").lower() == "true"
+    # caller's turn, to mask LLM/TTS latency. Enabled by default: it gives the
+    # caller immediate audible feedback so they don't talk into the silent
+    # composing window (and, since it routes through the half-duplex deadline,
+    # it mutes STT for the clip's duration). Set GAP_FILLER_ENABLED=false to
+    # disable.
+    gap_filler_enabled: bool = os.getenv("GAP_FILLER_ENABLED", "true").lower() == "true"
 
 
 @dataclass(frozen=True)
