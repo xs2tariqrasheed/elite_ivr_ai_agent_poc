@@ -44,7 +44,7 @@ class LangGraphAgent:
         # bounds the worst case to a few seconds.
         llm = ChatOpenAI(
             model=model,
-            temperature=1,
+            temperature=temperature,
             streaming=True,
             timeout=8,
             max_retries=2,
