@@ -63,9 +63,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Quick Reservation Agent 1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://ivrdemo.eliteny.com"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 # Signs the login-session cookie used by the /admin frontend.
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
