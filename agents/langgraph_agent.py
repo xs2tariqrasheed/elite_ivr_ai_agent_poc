@@ -34,10 +34,15 @@ class LangGraphAgent:
         thread_id: str = "default",
         snapshot_fn: Optional[Callable[[], dict]] = None,
         opening_trigger: Optional[str] = None,
+        on_turn_start: Optional[Callable[[str], None]] = None,
     ) -> None:
         # If set, the pipeline runs one synthetic turn with this text at the
         # start of the call so the agent can speak first (e.g. a greeting).
         self.opening_trigger = opening_trigger
+        # Invoked once at the start of each turn (respond/stream_response) with
+        # the incoming text. Lets an agent count caller turns — e.g. to enforce
+        # a turn boundary between reading a reservation back and finalizing it.
+        self._on_turn_start = on_turn_start
         # Fail fast on a stalled LLM request: on a phone call a hung connection
         # would otherwise freeze the (serialized) turn for the client's default
         # of ~30s+. A tight per-request timeout with a couple of quick retries
@@ -59,6 +64,8 @@ class LangGraphAgent:
         self._snapshot_fn = snapshot_fn
 
     async def respond(self, text: str) -> str:
+        if self._on_turn_start:
+            self._on_turn_start(text)
         result = await self._agent.ainvoke(
             {"messages": [("user", text)]}, self._config
         )
@@ -71,6 +78,8 @@ class LangGraphAgent:
         empty content (their tokens go to tool_call_chunks) and are skipped, so
         tool side effects still run but their arguments are never spoken.
         """
+        if self._on_turn_start:
+            self._on_turn_start(text)
         async for chunk, _meta in self._agent.astream(
             {"messages": [("user", text)]},
             self._config,

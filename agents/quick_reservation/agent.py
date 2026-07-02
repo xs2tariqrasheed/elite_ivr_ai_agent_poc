@@ -42,9 +42,10 @@ RULES:
 - Your replies are read aloud by a text-to-speech engine, so keep them SHORT,
   natural, and spoken. One or two sentences. No markdown, no bullet points, no emojis.
 - Always record details with the tools as you receive them. Never invent details.
-- Point "6. CONFIRM EVERYTHING" in "CONVERSATION FLOW" is very important, don't skip 
-  it. Read the full reservation back to the caller and get their confirmation before 
-  finalizing.
+- Point "6. CONFIRM EVERYTHING" in "CONVERSATION FLOW" is very important, don't skip
+  it. Call read_back_reservation, read the full reservation back to the caller, and wait
+  for their confirmation on a LATER turn before finalizing. Never read back and finalize
+  in the same turn — finalize_reservation is locked until the caller confirms.
 
 CONVERSATION FLOW:
 1. The first turn is the start of the call. Greet the caller by name and ask how you
@@ -66,22 +67,21 @@ CONVERSATION FLOW:
    confirm the callback number on file. Example: "[asking] And can I reach you at
    {caller_phone}?" If they confirm, continue. If they correct it, call set_caller_phone
    with the new number, then continue.
-6. CONFIRM EVERYTHING — before finalizing, read the FULL reservation back to the caller
-   in one short, natural summary: the pickup date and time, the pickup address, the
-   drop-off address, and the callback number. Then ask them to confirm it is all correct
-   or tell you what to change. Example: "[politely] Let me confirm: I have a pickup on
-   Thursday, June 25th at 1:24 PM from 10 Main Street, going to JFK Airport, and I'll
-   reach you at {caller_phone}. [asking] Is that all correct, or would you like to change
-   anything?"
+6. CONFIRM EVERYTHING — this step is MANDATORY and must be its own turn. Call
+   read_back_reservation, then read the FULL reservation back to the caller in one short,
+   natural summary: the pickup date and time, the pickup address, the drop-off address,
+   and the callback number. Ask them to confirm it is all correct or tell you what to
+   change, then STOP and wait for their reply. Do NOT call finalize_reservation in this
+   same turn — finalize is locked until the caller answers your read-back on a later turn.
+   Example: "[politely] Let me confirm: I have a pickup on Thursday, June 25th at 1:24 PM
+   from 10 Main Street, going to JFK Airport, and I'll reach you at {caller_phone}.
+   [asking] Is that all correct, or would you like to change anything?"
    - If the caller wants a change, call the matching set_ tool (set_pickup_datetime,
-     set_pickup_address, set_dropoff_address, or set_caller_phone), briefly read back the
-     corrected detail, and ask again if everything is now correct. Do NOT finalize until
-     the caller confirms the full reservation is correct.
-   - Once the caller confirms the full read-back is correct, call confirm_readback. This
-     is REQUIRED: finalize_reservation is locked and will refuse to run until you have
-     called confirm_readback. Any change afterward re-locks it, so read back and confirm
-     again before finalizing.
-7. Once the caller confirms everything is correct, call finalize_reservation to get the
+     set_pickup_address, set_dropoff_address, or set_caller_phone). This re-locks finalize,
+     so call read_back_reservation again, read the corrected reservation back, and wait for
+     the caller to confirm before finalizing.
+7. Only after the caller confirms the read-back on this later turn, call finalize_reservation
+   to get the
    confirmation number, then read it back LETTER AND DIGIT BY DIGIT separated by spaces,
    tell the caller the reservation details will be sent to their email and SAY THE EMAIL
    ADDRESS out loud ({caller_email}), thank them, and end the call. Example:
@@ -91,8 +91,8 @@ CONVERSATION FLOW:
    as "dot" (e.g. "jane at gmail dot com").
 
 IMPORTANT: Do not ask the caller to confirm their name or email. Read the full
-reservation back and get the caller's confirmation before calling finalize_reservation.
-Keep each reply short and spoken.
+reservation back with read_back_reservation and get the caller's confirmation on a later
+turn before calling finalize_reservation. Keep each reply short and spoken.
 """
 
 
@@ -103,28 +103,28 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
     def set_caller_phone(value: str) -> str:
         """Update the caller callback phone number if the caller corrects it."""
         session.caller_phone = value.strip()
-        session.readback_confirmed = False
+        session.readback_spoken_turn = None
         return f"Caller phone updated to {session.caller_phone}"
 
     @tool
     def set_pickup_datetime(value: str) -> str:
         """Record the pickup date and time, e.g. 'Thursday, June 25th at 1:24 PM'."""
         session.pickup_datetime = value.strip()
-        session.readback_confirmed = False
+        session.readback_spoken_turn = None
         return f"Pickup date/time set to {session.pickup_datetime}"
 
     @tool
     def set_pickup_address(value: str) -> str:
         """Record the pickup address."""
         session.pickup_address = value.strip()
-        session.readback_confirmed = False
+        session.readback_spoken_turn = None
         return f"Pickup address set to {session.pickup_address}"
 
     @tool
     def set_dropoff_address(value: str) -> str:
         """Record the drop-off address."""
         session.dropoff_address = value.strip()
-        session.readback_confirmed = False
+        session.readback_spoken_turn = None
         return f"Drop-off address set to {session.dropoff_address}"
 
     @tool
@@ -149,26 +149,45 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
         return details + " All details collected."
 
     @tool
-    def confirm_readback() -> str:
-        """Mark the CONFIRM EVERYTHING read-back as done.
+    def read_back_reservation() -> str:
+        """Begin the mandatory CONFIRM EVERYTHING step before finalizing.
 
-        Call this ONLY after you have read the FULL reservation back to the
-        caller (pickup date and time, pickup address, drop-off address, and
-        callback number) AND the caller has confirmed it is all correct. This
-        unlocks finalize_reservation, which cannot run until this is called.
+        Call this once all pickup details and the callback number are recorded,
+        BEFORE finalize_reservation. It returns the full reservation for you to
+        read back to the caller. After calling it you MUST speak the summary and
+        ask the caller to confirm, then WAIT for their reply — do NOT finalize in
+        the same turn. finalize_reservation stays locked until the caller has
+        answered your read-back on a later turn.
         """
-        session.readback_confirmed = True
-        return "Read-back confirmed by caller; you may now finalize."
+        missing = [
+            label
+            for label, val in (
+                ("pickup date/time", session.pickup_datetime),
+                ("pickup address", session.pickup_address),
+                ("drop-off address", session.dropoff_address),
+            )
+            if not val
+        ]
+        if missing:
+            return f"Cannot read back yet; still missing: {', '.join(missing)}."
+        session.readback_spoken_turn = session.turn_index
+        return (
+            "Now read this FULL reservation back to the caller in one short, "
+            "natural sentence and ask them to confirm it is correct (or say what "
+            "to change), then STOP and wait for their reply — do not finalize "
+            f"this turn: pickup {session.pickup_datetime}, from "
+            f"{session.pickup_address}, to {session.dropoff_address}, callback "
+            f"number {session.caller_phone}."
+        )
 
     @tool
     def finalize_reservation() -> str:
         """Generate the confirmation number and save the reservation.
 
-        Call once all pickup details are recorded, the callback number is
-        confirmed, and the caller has confirmed the full read-back (via
-        confirm_readback). Saves to the database, returns the confirmation
-        number, and flags end-of-call so the pipeline hangs up after the closing
-        line plays.
+        Only call this AFTER you have read the reservation back with
+        read_back_reservation on a previous turn and the caller has confirmed it
+        on this turn. Saves to the database, returns the confirmation number, and
+        flags end-of-call so the pipeline hangs up after the closing line plays.
         """
         missing = [
             label
@@ -181,12 +200,21 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
         ]
         if missing:
             return f"Cannot finalize yet; still missing: {', '.join(missing)}."
-        if not session.readback_confirmed:
+        # Turn-boundary gate: the read-back must have been spoken on a STRICTLY
+        # earlier turn, so the caller actually had a turn to confirm it. This
+        # makes it impossible to read back and finalize in one burst of tool
+        # calls (the bug where the agent skipped confirmation entirely).
+        if session.readback_spoken_turn is None:
             return (
-                "Cannot finalize yet: you must FIRST read the full reservation "
-                "back to the caller (pickup date and time, pickup address, "
-                "drop-off address, and callback number), get their confirmation, "
-                "then call confirm_readback. Do that now instead of finalizing."
+                "Cannot finalize yet: you have not read the reservation back. "
+                "Call read_back_reservation, speak the summary to the caller, and "
+                "wait for them to confirm before finalizing."
+            )
+        if session.readback_spoken_turn >= session.turn_index:
+            return (
+                "Cannot finalize yet: you just read the reservation back this "
+                "turn. Speak the summary, ask the caller to confirm, and wait for "
+                "their reply. Only finalize once they confirm on a later turn."
             )
         session.confirmed = True
         number = session.generate_confirmation_number()
@@ -211,7 +239,7 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
         set_pickup_address,
         set_dropoff_address,
         get_reservation,
-        confirm_readback,
+        read_back_reservation,
         finalize_reservation,
         transfer_to_support,
     ]
@@ -238,6 +266,14 @@ def build(settings: Settings, params: Optional[dict] = None) -> LangGraphAgent:
         caller_email=session.caller_email or "your email on file",
         today=datetime.now().strftime("%A, %B %d, %Y"),
     )
+
+    def _bump_turn(_text: str) -> None:
+        # One increment per turn (caller utterance or opening trigger). The
+        # read-back/finalize gate relies on this being the ONLY thing that can
+        # advance the turn counter — the model cannot bump it from a tool call,
+        # so it can't read back and finalize within a single turn.
+        session.turn_index += 1
+
     return LangGraphAgent(
         system_prompt=prompt,
         tools=_make_tools(session),
@@ -245,4 +281,5 @@ def build(settings: Settings, params: Optional[dict] = None) -> LangGraphAgent:
         thread_id="quick_reservation",
         snapshot_fn=session.to_dict,
         opening_trigger="<call_started>",
+        on_turn_start=_bump_turn,
     )

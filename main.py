@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
     loop.set_exception_handler(previous)
 
 
-app = FastAPI(title="Pizza Voice Agent", lifespan=lifespan)
+app = FastAPI(title="Quick Reservation Agent 1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
