@@ -41,7 +41,7 @@ class Settings:
     # half-duplex (the agent cannot be interrupted) — byte-for-byte the prior
     # behavior. Detection is energy-based (mean-abs PCM16 amplitude) so it never
     # has to un-mute STT into the agent's own echo; see services/audio_bridge.py.
-    barge_in_enabled: bool = False # os.getenv("BARGE_IN_ENABLED", "true").lower() == "true"
+    barge_in_enabled: bool = os.getenv("BARGE_IN_ENABLED", "true").lower() == "true"
     # Energy threshold (mean-abs PCM16) for a frame to count as caller speech
     # while the agent's audio is ON the wire. Set above steady-state line echo so
     # the agent's own voice can't trip a barge, but low enough to catch a normal
