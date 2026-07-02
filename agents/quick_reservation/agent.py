@@ -77,6 +77,10 @@ CONVERSATION FLOW:
      set_pickup_address, set_dropoff_address, or set_caller_phone), briefly read back the
      corrected detail, and ask again if everything is now correct. Do NOT finalize until
      the caller confirms the full reservation is correct.
+   - Once the caller confirms the full read-back is correct, call confirm_readback. This
+     is REQUIRED: finalize_reservation is locked and will refuse to run until you have
+     called confirm_readback. Any change afterward re-locks it, so read back and confirm
+     again before finalizing.
 7. Once the caller confirms everything is correct, call finalize_reservation to get the
    confirmation number, then read it back LETTER AND DIGIT BY DIGIT separated by spaces,
    tell the caller the reservation details will be sent to their email and SAY THE EMAIL
@@ -99,24 +103,28 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
     def set_caller_phone(value: str) -> str:
         """Update the caller callback phone number if the caller corrects it."""
         session.caller_phone = value.strip()
+        session.readback_confirmed = False
         return f"Caller phone updated to {session.caller_phone}"
 
     @tool
     def set_pickup_datetime(value: str) -> str:
         """Record the pickup date and time, e.g. 'Thursday, June 25th at 1:24 PM'."""
         session.pickup_datetime = value.strip()
+        session.readback_confirmed = False
         return f"Pickup date/time set to {session.pickup_datetime}"
 
     @tool
     def set_pickup_address(value: str) -> str:
         """Record the pickup address."""
         session.pickup_address = value.strip()
+        session.readback_confirmed = False
         return f"Pickup address set to {session.pickup_address}"
 
     @tool
     def set_dropoff_address(value: str) -> str:
         """Record the drop-off address."""
         session.dropoff_address = value.strip()
+        session.readback_confirmed = False
         return f"Drop-off address set to {session.dropoff_address}"
 
     @tool
@@ -141,12 +149,26 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
         return details + " All details collected."
 
     @tool
+    def confirm_readback() -> str:
+        """Mark the CONFIRM EVERYTHING read-back as done.
+
+        Call this ONLY after you have read the FULL reservation back to the
+        caller (pickup date and time, pickup address, drop-off address, and
+        callback number) AND the caller has confirmed it is all correct. This
+        unlocks finalize_reservation, which cannot run until this is called.
+        """
+        session.readback_confirmed = True
+        return "Read-back confirmed by caller; you may now finalize."
+
+    @tool
     def finalize_reservation() -> str:
         """Generate the confirmation number and save the reservation.
 
-        Call once all pickup details are recorded and the callback number is
-        confirmed. Saves to the database, returns the confirmation number, and
-        flags end-of-call so the pipeline hangs up after the closing line plays.
+        Call once all pickup details are recorded, the callback number is
+        confirmed, and the caller has confirmed the full read-back (via
+        confirm_readback). Saves to the database, returns the confirmation
+        number, and flags end-of-call so the pipeline hangs up after the closing
+        line plays.
         """
         missing = [
             label
@@ -159,6 +181,13 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
         ]
         if missing:
             return f"Cannot finalize yet; still missing: {', '.join(missing)}."
+        if not session.readback_confirmed:
+            return (
+                "Cannot finalize yet: you must FIRST read the full reservation "
+                "back to the caller (pickup date and time, pickup address, "
+                "drop-off address, and callback number), get their confirmation, "
+                "then call confirm_readback. Do that now instead of finalizing."
+            )
         session.confirmed = True
         number = session.generate_confirmation_number()
         save_reservation(session)
@@ -182,6 +211,7 @@ def _make_tools(session: QuickReservationSession) -> List[BaseTool]:
         set_pickup_address,
         set_dropoff_address,
         get_reservation,
+        confirm_readback,
         finalize_reservation,
         transfer_to_support,
     ]

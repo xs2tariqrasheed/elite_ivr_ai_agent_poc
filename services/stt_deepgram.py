@@ -27,13 +27,13 @@ _MODEL = "nova-3"
 # but risks splitting a sentence on a brief pause; tune against real calls.
 # Raised from 300 -> 1200 so the agent waits longer through the caller's natural
 # mid-sentence pauses before taking its turn, instead of barging in on a tiny gap.
-_ENDPOINTING_MS = 1200
+_ENDPOINTING_MS = 900
 
 # Backstop finalizer: if no speech_final fires, Deepgram emits an UtteranceEnd
 # after this much silence between words. Must be >= 1000 and requires
 # interim_results. Catches utterances the endpointer misses. Kept >= endpointing
 # so it stays a true backstop.
-_UTTERANCE_END_MS = 1500
+_UTTERANCE_END_MS = 1100
 
 # AudioFormat.stt_encoding values (shared with the AssemblyAI path) mapped to
 # Deepgram's encoding names.
