@@ -22,6 +22,18 @@ _TIMEOUT_SECONDS = 30.0
 _CONNECT_RETRIES = 2
 _RETRY_BACKOFF_SECONDS = 0.3
 
+# One shared client for all turns: connection pooling keeps the TLS session to
+# api.elevenlabs.io warm, so each reply skips the ~100-300 ms handshake a
+# per-turn client paid. Lazily created (never closed — lives for the process).
+_client: httpx.AsyncClient | None = None
+
+
+def _shared_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(timeout=_TIMEOUT_SECONDS)
+    return _client
+
 
 def _url(voice_id: str, output_format: str) -> str:
     return (
@@ -118,8 +130,7 @@ async def stream_tts_input(
         log.info("No expression tag in reply; prepended %s", default_tag)
 
     log.info("TTS synthesizing (%s, %d chars): %r", model_id, len(text), text)
-    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-        async for audio in _synthesize(
-            client, text, api_key, voice_id, model_id, output_format
-        ):
-            yield audio
+    async for audio in _synthesize(
+        _shared_client(), text, api_key, voice_id, model_id, output_format
+    ):
+        yield audio

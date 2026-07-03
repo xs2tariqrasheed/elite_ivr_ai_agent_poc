@@ -25,15 +25,17 @@ _MODEL = "nova-3"
 # Milliseconds of trailing silence after speech before Deepgram finalizes the
 # current utterance (emits speech_final). Smaller commits short replies faster
 # but risks splitting a sentence on a brief pause; tune against real calls.
-# Raised from 300 -> 1200 so the agent waits longer through the caller's natural
-# mid-sentence pauses before taking its turn, instead of barging in on a tiny gap.
-_ENDPOINTING_MS = 900
+# Lowered from 900 -> 450: the 900 value predates the composing-window merge
+# (TurnHandler keeps a fragment's user message on an early split and the next
+# turn reassembles it), which now absorbs most mid-sentence splits — so the
+# agent takes its turn ~450 ms sooner.
+_ENDPOINTING_MS = 450
 
 # Backstop finalizer: if no speech_final fires, Deepgram emits an UtteranceEnd
-# after this much silence between words. Must be >= 1000 and requires
-# interim_results. Catches utterances the endpointer misses. Kept >= endpointing
-# so it stays a true backstop.
-_UTTERANCE_END_MS = 1100
+# after this much silence between words. Must be >= 1000 (API minimum) and
+# requires interim_results. Catches utterances the endpointer misses. Kept >=
+# endpointing so it stays a true backstop.
+_UTTERANCE_END_MS = 1000
 
 # AudioFormat.stt_encoding values (shared with the AssemblyAI path) mapped to
 # Deepgram's encoding names.
