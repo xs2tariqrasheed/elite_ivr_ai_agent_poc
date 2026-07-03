@@ -118,7 +118,11 @@ class AudioBridge:
         With barge-in enabled, an energy detector runs on top of that core so
         sustained caller speech prunes the in-flight turn (see
         `_detect_barge_in` / `trigger_barge_in`). With it disabled the pipeline
-        stays strictly half-duplex and the agent cannot be interrupted.
+        stays strictly half-duplex: the agent never gives up its turn, and the
+        caller is not listened to for the WHOLE of the agent's turn — from the
+        moment the turn starts processing (gap filler / LLM composing) until
+        its reply has finished playing — so nothing said over the agent is
+        queued up and answered afterwards.
         """
         was_muted = False
         voice_on = False
@@ -142,12 +146,20 @@ class AudioBridge:
                 continue
 
             # ---- Legacy strictly-half-duplex path (no barge-in) --------------
-            muted = audible
+            # The agent owns its turn end to end: mute STT while a turn is in
+            # flight (gap filler / LLM composing — even with no audio on the
+            # wire yet) AND while its audio is still playing out. Muting only
+            # while audible left the composing window open, so speech over the
+            # agent was transcribed, queued, and wrongly answered afterwards.
+            turn_live = (
+                self._state.turn_task is not None
+                and not self._state.turn_task.done()
+            )
+            muted = audible or turn_live
             if muted != was_muted:
                 if muted:
                     log.info(
-                        "STT muted (agent speaking ~%.1fs)",
-                        self._state.speaking_until + echo_tail - now,
+                        "STT muted (agent turn in progress; audible=%s)", audible
                     )
                 else:
                     log.info("STT listening (mute released)")

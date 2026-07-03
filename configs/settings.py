@@ -38,8 +38,11 @@ class Settings:
     # in-flight turn (LLM stream + TTS request + queued audio + the abandoned
     # reply in agent memory) is pruned and the caller's new utterance is
     # processed from scratch. When disabled, the pipeline stays strictly
-    # half-duplex (the agent cannot be interrupted) — byte-for-byte the prior
-    # behavior. Detection is energy-based (mean-abs PCM16 amplitude) so it never
+    # half-duplex: the agent never gives up its turn, and caller audio is
+    # discarded (STT hears silence) for the agent's entire turn — while it is
+    # composing AND while its reply is playing — so speech over the agent is
+    # never queued up and answered afterwards.
+    # Detection is energy-based (mean-abs PCM16 amplitude) so it never
     # has to un-mute STT into the agent's own echo; see services/audio_bridge.py.
     barge_in_enabled: bool = os.getenv("BARGE_IN_ENABLED", "true").lower() == "true"
     # Energy threshold (mean-abs PCM16) for a frame to count as caller speech

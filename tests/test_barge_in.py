@@ -14,6 +14,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi import WebSocketDisconnect  # noqa: E402
+
 from services.audio_bridge import AudioBridge  # noqa: E402
 from services.pipeline_state import PipelineState  # noqa: E402
 from services.turn_handler import TurnHandler  # noqa: E402
@@ -231,6 +233,69 @@ async def test_flag_off_no_detection():
     assert state.barge_generation == gen0
 
 
+class FakeMicClient(FakeTransport):
+    """Transport that also plays inbound frames into browser_to_stt."""
+
+    def __init__(self, frames):
+        super().__init__()
+        self._frames = list(frames)
+
+    async def receive(self):
+        if self._frames:
+            return {"bytes": self._frames.pop(0)}
+        return {"type": "websocket.disconnect"}
+
+
+async def run_disabled_loop(state, frames):
+    """Drive browser_to_stt (flag off) over `frames` until disconnect."""
+    stt = FakeSTT()
+    client = FakeMicClient(frames)
+
+    async def _noop_turn(*a, **k):
+        await asyncio.sleep(100)
+
+    bridge = AudioBridge(
+        client, stt, state, _noop_turn, make_settings(barge_in_enabled=False)
+    )
+    try:
+        await bridge.browser_to_stt()
+    except WebSocketDisconnect:
+        pass
+    return stt, client
+
+
+async def test_flag_off_mutes_while_composing():
+    """Flag off + a turn in flight but no audio on the wire yet (gap filler /
+    LLM composing): the caller must NOT be listened to — STT gets equal-length
+    silence, so nothing said over the agent is queued and answered later (the
+    reported bug: mute was tied to `audible` only, leaving this window open)."""
+    state = PipelineState()
+    task = live_turn(state)      # turn in flight
+    state.speaking_until = 0.0   # nothing audible on the wire
+    stt, _ = await run_disabled_loop(state, [LOUD, LOUD, LOUD])
+    assert stt.frames == [SILENCE] * 3, "composing with flag off must mute STT"
+    task.cancel()
+
+
+async def test_flag_off_mutes_while_audible():
+    """Flag off + agent audio still playing (even after the turn task ended):
+    STT stays muted, as before."""
+    state = PipelineState()
+    state.turn_task = None
+    state.speaking_until = 1e18  # reply still playing out
+    stt, _ = await run_disabled_loop(state, [LOUD, LOUD])
+    assert stt.frames == [SILENCE] * 2, "audible playback with flag off must mute STT"
+
+
+async def test_flag_off_listens_when_idle():
+    """Flag off + no turn in flight and nothing playing: the caller is heard."""
+    state = PipelineState()
+    state.turn_task = None
+    state.speaking_until = 0.0
+    stt, _ = await run_disabled_loop(state, [LOUD, LOUD])
+    assert stt.frames == [LOUD, LOUD], "idle with flag off must forward live audio"
+
+
 async def test_send_audio_generation_guard():
     state = PipelineState()
     transport = FakeTransport()
@@ -311,6 +376,9 @@ async def main():
         test_greeting_exempt_from_composing_barge,
         test_no_turn_live_does_not_barge,
         test_flag_off_no_detection,
+        test_flag_off_mutes_while_composing,
+        test_flag_off_mutes_while_audible,
+        test_flag_off_listens_when_idle,
         test_send_audio_generation_guard,
         test_worker_survives_barge_runs_redo_then_teardown_ends_it,
     ]
