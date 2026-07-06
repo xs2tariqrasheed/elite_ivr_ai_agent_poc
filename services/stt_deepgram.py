@@ -13,6 +13,7 @@ where short affirmations never produced a transcript.
 """
 import json
 import logging
+import time
 
 import websockets
 
@@ -41,6 +42,11 @@ _UTTERANCE_END_MS = 1000
 # Deepgram's encoding names.
 _ENCODING_MAP = {"pcm_s16le": "linear16", "pcm_mulaw": "mulaw"}
 
+# While the agent holds the floor no audio is sent (see send_mute); a KeepAlive
+# at this cadence stops Deepgram's 10-second no-audio timeout (NET-0001) from
+# closing the stream in the meantime.
+_KEEPALIVE_INTERVAL_SECONDS = 3.0
+
 
 def _dg_url(encoding: str, sample_rate: int) -> str:
     dg_encoding = _ENCODING_MAP.get(encoding, encoding)
@@ -64,6 +70,7 @@ class DeepgramStream:
         self.encoding = encoding
         self.sample_rate = sample_rate
         self.ws = None
+        self._last_keepalive = 0.0
 
     async def connect(self):
         self.ws = await websockets.connect(
@@ -79,6 +86,26 @@ class DeepgramStream:
         if self.ws is not None:
             await self.ws.send(pcm)
 
+    async def send_mute(self, nbytes: int):
+        """The agent holds the floor: send NO audio, just a throttled KeepAlive.
+
+        The zero-fill approach (equal-length silence for every muted frame) kept
+        Deepgram chewing through 256 kbps of digital zeros for the whole of every
+        agent turn. On a constrained uplink that stream falls behind real time,
+        and the growing backlog surfaced live as multi-second transcript lag and
+        Deepgram re-emitting already-finalized audio (see the replay guard in
+        `_events`). Deepgram's documented pattern for "caller shouldn't be heard
+        right now" is to pause the audio and send KeepAlive text frames so the
+        connection survives its 10 s no-audio timeout — the audio timeline simply
+        resumes when real frames flow again after the mute lifts.
+        """
+        if self.ws is None:
+            return
+        now = time.monotonic()
+        if now - self._last_keepalive >= _KEEPALIVE_INTERVAL_SECONDS:
+            self._last_keepalive = now
+            await self.ws.send(json.dumps({"type": "KeepAlive"}))
+
     def __aiter__(self):
         return self._events()
 
@@ -90,6 +117,14 @@ class DeepgramStream:
         # with a strictly increasing turn_order for its dedupe.
         turn_order = 0
         final_text = ""
+        # Audio-timeline watermark (seconds): end of the newest is_final segment
+        # accepted so far. Deepgram occasionally re-emits Results covering audio
+        # that was already finalized — seen live as a complete re-transcription
+        # of the previous utterance arriving several seconds later, which was
+        # then dispatched and answered a second time. A genuine new utterance
+        # always advances the timeline, so any segment ending at or before the
+        # watermark is a replay and is dropped.
+        finalized_until = 0.0
         try:
             async for raw in self.ws:
                 try:
@@ -127,6 +162,20 @@ class DeepgramStream:
                 text = (alt.get("transcript") or "").strip()
                 is_final = bool(msg.get("is_final"))
                 speech_final = bool(msg.get("speech_final"))
+                try:
+                    seg_end = float(msg.get("start") or 0.0) + float(
+                        msg.get("duration") or 0.0
+                    )
+                except (TypeError, ValueError):
+                    seg_end = 0.0
+
+                if text and 0.0 < seg_end <= finalized_until:
+                    log.info(
+                        "Deepgram replayed segment (end=%.2fs <= finalized=%.2fs); "
+                        "dropped: %r",
+                        seg_end, finalized_until, text,
+                    )
+                    continue
 
                 if not text:
                     # Silence frame. If it carries the endpoint flag, flush any
@@ -144,6 +193,7 @@ class DeepgramStream:
                     continue
 
                 if is_final:
+                    finalized_until = max(finalized_until, seg_end)
                     final_text = (final_text + " " + text).strip()
                     if speech_final:
                         yield {

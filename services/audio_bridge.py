@@ -176,7 +176,14 @@ class AudioBridge:
             elif level < _VOICE_LEVEL and voice_on:
                 voice_on = False
                 log.info("Caller audio stopped")
-            await self._stt.send_audio(bytes(len(data)) if muted else data)
+            if muted:
+                # Deepgram: no audio + throttled KeepAlive (streaming zero-fill
+                # for whole agent turns built a decode backlog that surfaced as
+                # multi-second transcript lag and replayed segments). AssemblyAI:
+                # equal-length zeros, as before.
+                await self._stt.send_mute(len(data))
+            else:
+                await self._stt.send_audio(data)
 
     async def _detect_barge_in(
         self, data: bytes, level: int, now: float, audible: bool
@@ -237,7 +244,7 @@ class AudioBridge:
             >= self._settings.barge_in_echo_guard_seconds
         )
         threshold = self._settings.barge_in_voice_level
-        await self._stt.send_audio(bytes(len(data)))  # silence (echo defense)
+        await self._stt.send_mute(len(data))  # no live audio to STT (echo defense)
 
         # Diagnostic heartbeat: while the agent is audible, print the measured
         # inbound level against the threshold so barge sensitivity can be tuned
@@ -367,6 +374,37 @@ class AudioBridge:
             if turn_order <= self._state.last_dispatched_turn:
                 continue
             self._state.last_dispatched_turn = turn_order
+
+            # Half-duplex, transcript edge. The audio edge feeds STT silence
+            # while the agent holds the floor, but STT decode latency defeats
+            # it: audio that entered the stream seconds BEFORE the mute engaged
+            # can finalize DURING the agent's turn (seen live: a lagging
+            # Deepgram emitted a duplicate of the just-answered utterance while
+            # the reply was playing, and it was queued and answered a second
+            # time). Enforce the contract on the way out too: a final that
+            # lands while the agent's audio is on the wire — or, with barge-in
+            # off, while a turn is in flight at all — is stale speech the mute
+            # was meant to discard. With barge-in ON, a final during the
+            # composing window (turn live, nothing audible) is deliberate:
+            # that audio was forwarded live so the caller's words survive into
+            # the next turn — so only the audible case is dropped there.
+            audible = (
+                time.monotonic()
+                < self._state.speaking_until
+                + self._settings.barge_in_echo_tail_seconds
+            )
+            turn_live = (
+                self._state.turn_task is not None
+                and not self._state.turn_task.done()
+            )
+            if audible or (turn_live and not self._settings.barge_in_enabled):
+                self._state.last_partial_at = None
+                log.info(
+                    "Dropping stale final (agent holds the floor; "
+                    "audible=%s turn_live=%s): %r",
+                    audible, turn_live, transcript,
+                )
+                continue
 
             final_at = time.monotonic()
             user_stopped_at = self._state.last_partial_at

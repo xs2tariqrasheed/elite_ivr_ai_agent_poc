@@ -46,6 +46,11 @@ class FakeSTT:
     async def send_audio(self, pcm):
         self.frames.append(pcm)
 
+    async def send_mute(self, nbytes):
+        # Mirror the AssemblyAI mute representation (equal-length zeros) so the
+        # muted-path assertions can keep comparing against SILENCE frames.
+        self.frames.append(bytes(nbytes))
+
 
 class FakeTransport:
     def __init__(self):
@@ -296,6 +301,149 @@ async def test_flag_off_listens_when_idle():
     assert stt.frames == [LOUD, LOUD], "idle with flag off must forward live audio"
 
 
+class FakeEventSTT(FakeSTT):
+    """STT fake that also yields a fixed list of events from stt_to_agent."""
+
+    def __init__(self, events):
+        super().__init__()
+        self._events = list(events)
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        for e in self._events:
+            yield e
+
+
+def final_turn_event(text, order=0):
+    return {
+        "type": "Turn",
+        "transcript": text,
+        "end_of_turn": True,
+        "turn_order": order,
+        "turn_is_formatted": True,
+    }
+
+
+async def run_stt_to_agent(state, settings, events):
+    """Drive stt_to_agent over `events`; return the bridge (inspect ._turns)."""
+    stt = FakeEventSTT(events)
+
+    async def _noop_turn(*a, **k):
+        await asyncio.sleep(100)
+
+    bridge = AudioBridge(FakeTransport(), stt, state, _noop_turn, settings)
+    await bridge.stt_to_agent()
+    return bridge
+
+
+async def test_stale_final_dropped_while_audible():
+    """A final that lands while the agent's reply is still playing is stale
+    audio that slipped past the mute (STT decode lag) — it must NOT be queued
+    and answered afterwards (the double-answer bug from the call logs)."""
+    state = PipelineState()
+    state.turn_task = None
+    state.speaking_until = 1e18  # reply still playing out
+    bridge = await run_stt_to_agent(
+        state,
+        make_settings(barge_in_enabled=False),
+        [final_turn_event("book me a reservation")],
+    )
+    assert bridge._turns.empty(), "final during playback must be dropped"
+
+
+async def test_stale_final_dropped_while_turn_live_flag_off():
+    """Flag off + a turn composing (no audio yet): the caller was muted for
+    this whole window, so any final now is lagged pre-mute audio — drop it."""
+    state = PipelineState()
+    task = live_turn(state)
+    state.speaking_until = 0.0
+    bridge = await run_stt_to_agent(
+        state,
+        make_settings(barge_in_enabled=False),
+        [final_turn_event("book me a reservation")],
+    )
+    assert bridge._turns.empty(), "final while a turn is in flight must be dropped"
+    task.cancel()
+
+
+async def test_final_dispatched_when_idle():
+    state = PipelineState()
+    state.turn_task = None
+    state.speaking_until = 0.0
+    bridge = await run_stt_to_agent(
+        state,
+        make_settings(barge_in_enabled=False),
+        [final_turn_event("book me a reservation")],
+    )
+    assert bridge._turns.qsize() == 1, "idle: the caller's turn must dispatch"
+
+
+async def test_composing_final_dispatched_with_barge_in():
+    """Barge-in ON: audio during the composing window is deliberately forwarded
+    live so the caller's words survive into the next turn — a final landing
+    then must still be queued (only the audible case is stale)."""
+    state = PipelineState()
+    task = live_turn(state)
+    state.speaking_until = 0.0  # composing: nothing audible
+    bridge = await run_stt_to_agent(
+        state,
+        make_settings(barge_in_enabled=True),
+        [final_turn_event("and the pickup is at noon")],
+    )
+    assert bridge._turns.qsize() == 1, "composing final must queue with barge-in on"
+    task.cancel()
+
+
+class FakeDeepgramWS:
+    """Async-iterable stand-in for the Deepgram websocket (yields raw JSON)."""
+
+    def __init__(self, messages):
+        self._messages = list(messages)
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        import json
+
+        for m in self._messages:
+            yield json.dumps(m)
+
+
+def dg_results(text, start, duration, is_final=True, speech_final=True):
+    return {
+        "type": "Results",
+        "start": start,
+        "duration": duration,
+        "is_final": is_final,
+        "speech_final": speech_final,
+        "channel": {"alternatives": [{"transcript": text}]},
+    }
+
+
+async def test_deepgram_replayed_segment_dropped():
+    """Deepgram sometimes re-emits Results covering audio that was already
+    finalized (seen live as a full re-transcription of the previous utterance
+    arriving seconds later, answered a second time). A segment that does not
+    advance the audio timeline must be dropped; genuinely new audio must not."""
+    from services.stt_deepgram import DeepgramStream
+
+    stream = DeepgramStream("key")
+    stream.ws = FakeDeepgramWS([
+        dg_results("book me a reservation", start=13.0, duration=7.0),
+        # Replay of the same audio span — must be dropped, not become a turn.
+        dg_results("book me a reservation", start=13.0, duration=7.0),
+        # New speech past the watermark — must still come through.
+        dg_results("pickup at noon", start=25.0, duration=2.0),
+    ])
+    turns = [
+        e["transcript"] async for e in stream if e.get("end_of_turn")
+    ]
+    assert turns == ["book me a reservation", "pickup at noon"], turns
+
+
 async def test_send_audio_generation_guard():
     state = PipelineState()
     transport = FakeTransport()
@@ -379,6 +527,11 @@ async def main():
         test_flag_off_mutes_while_composing,
         test_flag_off_mutes_while_audible,
         test_flag_off_listens_when_idle,
+        test_stale_final_dropped_while_audible,
+        test_stale_final_dropped_while_turn_live_flag_off,
+        test_final_dispatched_when_idle,
+        test_composing_final_dispatched_with_barge_in,
+        test_deepgram_replayed_segment_dropped,
         test_send_audio_generation_guard,
         test_worker_survives_barge_runs_redo_then_teardown_ends_it,
     ]

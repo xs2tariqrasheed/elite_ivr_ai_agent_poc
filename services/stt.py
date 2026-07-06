@@ -73,6 +73,15 @@ class AssemblyAIStream:
         if self.ws is not None:
             await self.ws.send(pcm)
 
+    async def send_mute(self, nbytes: int):
+        """The agent holds the floor: feed equal-length silence.
+
+        AssemblyAI has no KeepAlive control message (unlike Deepgram, whose
+        wrapper pauses the audio instead), so the mute is represented as actual
+        zero-fill — which also keeps its end-of-turn silence timers running.
+        """
+        await self.send_audio(bytes(nbytes))
+
     def __aiter__(self):
         return self._events()
 
