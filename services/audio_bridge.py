@@ -77,6 +77,21 @@ class AudioBridge:
         """
         while True:
             text, user_stopped_at, gap_filler = await self._turns.get()
+            # STT sometimes splits one utterance into fragments on a short pause
+            # ("Actually, it we" / "six in the evening."), and they can all be
+            # queued by the time the worker gets here (e.g. while a pruned turn
+            # unwinds). Answering each fragment separately produced disjointed
+            # back-to-back replies — merge everything queued into ONE turn so
+            # the agent answers the caller once, with the full sentence.
+            while not self._turns.empty():
+                try:
+                    more_text, more_stopped, more_gap = self._turns.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                log.info("Merging queued fragment into turn: %r", more_text)
+                text = f"{text} {more_text}".strip()
+                user_stopped_at = more_stopped or user_stopped_at
+                gap_filler = gap_filler or more_gap
             # Fresh turn — re-arm the barge detector (so the redo turn right after
             # an interruption is itself interruptible). The opening greeting is
             # the only turn enqueued with gap_filler=False; exempt it from the
@@ -205,6 +220,10 @@ class AudioBridge:
             kill it on a loop (the agent then never responds). Forward the live
             caller audio so nothing they say is lost (it transcribes and queues
             as the next turn); barge-in resumes the instant the agent is audible.
+            (If the caller's speech here reaches a FINAL transcript while the
+            turn is still composing, stt_to_agent prunes the in-flight turn at
+            that point — transcript-level barge — so the reply is regenerated
+            from the complete utterance.)
         """
         turn_live = (
             self._state.turn_task is not None and not self._state.turn_task.done()
@@ -291,22 +310,11 @@ class AudioBridge:
     async def trigger_barge_in(self) -> None:
         """Prune the in-flight turn and flush playback so the caller takes over.
 
-        Order matters: bump the generation FIRST so any outbound chunk that
-        loses the race self-suppresses (see TurnHandler._send_audio); flush the
-        transport's buffered audio so the caller hears the agent stop within a
-        round trip; reset the playback deadline so STT un-mutes immediately;
-        drop stale queued turns; then cancel the turn task. We do NOT await the
-        task here — this runs on the inbound-audio loop, and the turn worker owns
-        the await — so ingestion of the caller's redo is never blocked.
+        Queued turns are NOT dropped: they are caller finals that were never
+        answered, and the turn worker merges everything queued into the next
+        turn — so nothing the caller said is lost to the interruption.
         """
-        self._state.barge_generation += 1
-        await self._transport_clear()
-        self._state.speaking_until = 0.0
-        self._state.speaking_started_at = 0.0
-        self._drain_turns()
-        task = self._state.turn_task
-        if task is not None and not task.done():
-            task.cancel()
+        await self._cancel_inflight_turn()
         # Replay the caller's opening frames captured while STT was muted for
         # echo defense (Regime A), now that playback is flushed, so the redo
         # turn isn't missing its leading word.
@@ -316,18 +324,32 @@ class AudioBridge:
             for frame in frames:
                 await self._stt.send_audio(frame)
 
+    async def _cancel_inflight_turn(self) -> None:
+        """Silence the agent and cancel the in-flight turn task.
+
+        Order matters: bump the generation FIRST so any outbound chunk that
+        loses the race self-suppresses (see TurnHandler._send_audio); flush the
+        transport's buffered audio so the caller hears the agent stop within a
+        round trip; reset the playback deadline so STT un-mutes immediately;
+        then cancel the turn task. We do NOT await the task here — this runs on
+        the inbound-audio loop, and the turn worker owns the await — so
+        ingestion of the caller's redo is never blocked. The cancelled turn's
+        rollback keeps the caller's utterance in agent memory (see
+        TurnHandler.handle_turn), so the next reply is generated from
+        everything the caller has said.
+        """
+        self._state.barge_generation += 1
+        await self._transport_clear()
+        self._state.speaking_until = 0.0
+        self._state.speaking_started_at = 0.0
+        task = self._state.turn_task
+        if task is not None and not task.done():
+            task.cancel()
+
     async def _transport_clear(self) -> None:
         """Flush the transport's buffered outbound audio, serialized with sends."""
         async with self._state.send_lock:
             await self._client.clear()
-
-    def _drain_turns(self) -> None:
-        """Drop any queued turns — stale the moment the caller interrupts."""
-        while not self._turns.empty():
-            try:
-                self._turns.get_nowait()
-            except asyncio.QueueEmpty:
-                break
 
     async def stt_to_agent(self) -> None:
         """Consume STT events; dispatch the agent on a formatted final turn."""
@@ -405,6 +427,27 @@ class AudioBridge:
                     audible, turn_live, transcript,
                 )
                 continue
+
+            # Barge-in ON, final while a turn is still composing (LLM/tool calls
+            # running, nothing audible yet): the caller kept talking, so the
+            # in-flight turn is answering an INCOMPLETE utterance — its reply is
+            # stale before it is ever spoken. Prune it now (transcript-level
+            # barge) and dispatch this final instead. The pruned turn's caller
+            # utterance stays in agent memory (rollback keeps user messages),
+            # so the fresh turn's reply is generated from ALL the caller's
+            # words, fragments included. The opening greeting is exempt, same
+            # as the energy detector's composing rule.
+            if (
+                turn_live
+                and self._settings.barge_in_enabled
+                and not self._state.greeting_active
+            ):
+                log.info(
+                    "Final while turn composing — pruning in-flight turn, "
+                    "redispatching with %r",
+                    transcript,
+                )
+                await self._cancel_inflight_turn()
 
             final_at = time.monotonic()
             user_stopped_at = self._state.last_partial_at

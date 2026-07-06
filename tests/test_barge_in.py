@@ -34,6 +34,9 @@ def make_settings(**over):
         barge_in_min_ms=0,
         barge_in_echo_guard_seconds=0.0,
         barge_in_echo_tail_seconds=0.7,
+        gap_filler_enabled=False,
+        elevenlabs_api_key="test-key",
+        elevenlabs_voice_id="test-voice",
     )
     base.update(over)
     return SimpleNamespace(**base)
@@ -380,27 +383,137 @@ async def test_final_dispatched_when_idle():
     assert bridge._turns.qsize() == 1, "idle: the caller's turn must dispatch"
 
 
-async def test_composing_final_dispatched_with_barge_in():
-    """Barge-in ON: audio during the composing window is deliberately forwarded
-    live so the caller's words survive into the next turn — a final landing
-    then must still be queued (only the audible case is stale)."""
+async def test_composing_final_prunes_inflight_turn():
+    """Barge-in ON: a FINAL landing while a turn is still composing means the
+    caller kept talking — the in-flight turn is answering an incomplete
+    utterance. It must be pruned (transcript-level barge) and the new final
+    queued, so ONE reply is regenerated from everything the caller said (the
+    'Actually, it we' / 'six in the evening.' double-answer bug)."""
     state = PipelineState()
     task = live_turn(state)
     state.speaking_until = 0.0  # composing: nothing audible
+    gen0 = state.barge_generation
     bridge = await run_stt_to_agent(
         state,
         make_settings(barge_in_enabled=True),
         [final_turn_event("and the pickup is at noon")],
     )
     assert bridge._turns.qsize() == 1, "composing final must queue with barge-in on"
+    assert state.barge_generation == gen0 + 1, "in-flight turn must be superseded"
+    await asyncio.sleep(0)
+    assert task.cancelled(), "the stale composing turn must be cancelled"
+
+
+async def test_greeting_composing_final_does_not_prune():
+    """The opening greeting is exempt from the transcript-level barge (as it is
+    from the energy one): a final while it composes queues behind it."""
+    state = PipelineState()
+    task = live_turn(state)
+    state.greeting_active = True
+    state.speaking_until = 0.0
+    gen0 = state.barge_generation
+    bridge = await run_stt_to_agent(
+        state,
+        make_settings(barge_in_enabled=True),
+        [final_turn_event("hello?")],
+    )
+    assert bridge._turns.qsize() == 1, "final must still queue behind the greeting"
+    assert state.barge_generation == gen0, "greeting must not be pruned"
+    assert not task.cancelled(), "greeting turn must survive"
     task.cancel()
+
+
+async def test_worker_merges_queued_fragments():
+    """Fragments of one utterance that are all queued by the time the worker
+    dequeues must be merged into a single turn (one reply, full sentence)."""
+    state = PipelineState()
+    handled = []
+
+    async def on_turn(text, user_stopped_at=None, gap_filler=False):
+        handled.append(text)
+
+    bridge = AudioBridge(FakeTransport(), FakeSTT(), state, on_turn, make_settings())
+    bridge.enqueue_turn("Actually, it we", gap_filler=True)
+    bridge.enqueue_turn("six in the evening.", gap_filler=True)
+    worker = asyncio.create_task(bridge.turn_worker())
+    await asyncio.sleep(0.05)
+    assert handled == ["Actually, it we six in the evening."], handled
+    worker.cancel()
+
+
+async def test_barge_keeps_queued_turns():
+    """A barge-in must NOT drop queued turns: they are unanswered caller finals
+    and the worker merges them into the next (redo) turn, so nothing the caller
+    said is lost to the interruption."""
+    state = PipelineState()
+    bridge, stt, transport = make_bridge(state, make_settings())
+    live_turn(state)
+    state.speaking_started_at = 0.0  # echo guard passed
+    bridge.enqueue_turn("queued caller final", gap_filler=True)
+
+    for _ in range(3):
+        await bridge._detect_barge_in(LOUD, 5000, 1000.0, audible=True)
+
+    assert transport.clears == 1, "barge must still flush playback"
+    assert bridge._turns.qsize() == 1, "queued caller finals must survive a barge"
+
+
+async def test_barge_rollback_keeps_caller_utterance():
+    """A barged turn must prune ONLY the agent's abandoned reply — the caller's
+    utterance stays in memory so the regenerated reply accounts for it (the
+    'forgot the pickup time after a barge' bug)."""
+    import services.turn_handler as th_mod
+
+    calls = {}
+
+    class FakeAgent:
+        async def checkpoint(self):
+            return {"pre-turn-msg"}
+
+        async def stream_response(self, text):
+            yield "Great, I have your pickup set "
+            await asyncio.sleep(100)  # mid-reply when the barge lands
+
+        async def rollback_barge(self, pre_ids, *, keep_user_message=False):
+            calls["pre_ids"] = pre_ids
+            calls["keep_user_message"] = keep_user_message
+
+        def snapshot(self):
+            return None
+
+    async def fake_tts(gen, *args, **kwargs):
+        async for _sentence in gen:
+            yield b"\x00" * 320
+
+    orig = th_mod.stream_tts_input
+    th_mod.stream_tts_input = fake_tts
+    try:
+        state = PipelineState()
+        transport = FakeTransport()
+        handler = TurnHandler(transport, FakeAgent(), make_settings(), state)
+        task = asyncio.create_task(
+            handler.handle_turn("pickup friday nine", gap_filler=True)
+        )
+        await asyncio.sleep(0.05)  # let the fake reply start streaming
+        task.cancel()  # the barge
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert calls.get("keep_user_message") is True, (
+            "barge rollback must keep the caller's utterance even after the "
+            "agent started replying"
+        )
+    finally:
+        th_mod.stream_tts_input = orig
 
 
 class FakeDeepgramWS:
     """Async-iterable stand-in for the Deepgram websocket (yields raw JSON)."""
 
-    def __init__(self, messages):
+    def __init__(self, messages, raise_after=None):
         self._messages = list(messages)
+        self._raise_after = raise_after
 
     def __aiter__(self):
         return self._gen()
@@ -410,6 +523,21 @@ class FakeDeepgramWS:
 
         for m in self._messages:
             yield json.dumps(m)
+        if self._raise_after is not None:
+            raise self._raise_after
+
+    async def close(self):
+        pass
+
+    async def send(self, data):
+        pass
+
+
+def dg_closed_error():
+    import websockets
+    from websockets.frames import Close
+
+    return websockets.exceptions.ConnectionClosedError(Close(1006, ""), None)
 
 
 def dg_results(text, start, duration, is_final=True, speech_final=True):
@@ -431,6 +559,7 @@ async def test_deepgram_replayed_segment_dropped():
     from services.stt_deepgram import DeepgramStream
 
     stream = DeepgramStream("key")
+    stream._closed = True  # ends _events cleanly when the fake stream runs dry
     stream.ws = FakeDeepgramWS([
         dg_results("book me a reservation", start=13.0, duration=7.0),
         # Replay of the same audio span — must be dropped, not become a turn.
@@ -442,6 +571,72 @@ async def test_deepgram_replayed_segment_dropped():
         e["transcript"] async for e in stream if e.get("end_of_turn")
     ]
     assert turns == ["book me a reservation", "pickup at noon"], turns
+
+
+async def test_deepgram_reconnects_after_drop():
+    """A mid-call socket death must NOT end the STT stream (it crashed the whole
+    session live: 'keepalive ping timeout'). The receive loop re-dials and keeps
+    yielding; turn_order keeps increasing across the reconnect (AudioBridge
+    dedupes on it) while the replay watermark resets (the new connection's audio
+    timeline restarts at zero, so old watermarks would drop everything)."""
+    from services.stt_deepgram import DeepgramStream
+
+    stream = DeepgramStream("key")
+    # First connection dies abnormally after one finalized utterance.
+    stream.ws = FakeDeepgramWS(
+        [dg_results("first utterance", start=10.0, duration=5.0)],
+        raise_after=dg_closed_error(),
+    )
+    # Reconnect hands over a fresh connection whose timeline restarted (the
+    # segment ends at 1.5s, well before the old 15.0s watermark).
+    ws2 = FakeDeepgramWS([dg_results("second utterance", start=0.5, duration=1.0)])
+
+    async def fake_connect():
+        stream.ws = ws2
+        return stream
+
+    stream.connect = fake_connect
+
+    turns = []
+    async for e in stream:
+        if e.get("end_of_turn"):
+            turns.append((e["turn_order"], e["transcript"]))
+        if len(turns) == 2:
+            stream._closed = True  # stop after the post-reconnect turn
+    assert turns == [(0, "first utterance"), (1, "second utterance")], turns
+
+
+async def test_deepgram_flushes_pending_text_on_drop():
+    """Finalized segments that never got their endpoint before the socket died
+    must be flushed as a completed turn — the caller's words survive the drop."""
+    from services.stt_deepgram import DeepgramStream
+
+    stream = DeepgramStream("key")
+    stream._closed = True  # no reconnect: we only care about the flush
+    stream.ws = FakeDeepgramWS(
+        [dg_results("pickup at noon", start=1.0, duration=2.0, speech_final=False)],
+        raise_after=dg_closed_error(),
+    )
+    turns = [e["transcript"] async for e in stream if e.get("end_of_turn")]
+    assert turns == ["pickup at noon"], turns
+
+
+async def test_deepgram_send_survives_dead_socket():
+    """send_audio / send_mute on a dead socket must drop the frame, not raise
+    into the inbound-audio task (which killed the session live)."""
+    from services.stt_deepgram import DeepgramStream
+
+    class DeadWS:
+        async def send(self, data):
+            raise dg_closed_error()
+
+    stream = DeepgramStream("key")
+    stream.ws = DeadWS()
+    await stream.send_audio(b"\x00" * 320)  # must not raise
+    stream._last_keepalive = 0.0
+    await stream.send_mute(320)  # must not raise
+    stream.ws = None
+    await stream.send_audio(b"\x00" * 320)  # reconnect window: must not raise
 
 
 async def test_send_audio_generation_guard():
@@ -530,8 +725,15 @@ async def main():
         test_stale_final_dropped_while_audible,
         test_stale_final_dropped_while_turn_live_flag_off,
         test_final_dispatched_when_idle,
-        test_composing_final_dispatched_with_barge_in,
+        test_composing_final_prunes_inflight_turn,
+        test_greeting_composing_final_does_not_prune,
+        test_worker_merges_queued_fragments,
+        test_barge_keeps_queued_turns,
+        test_barge_rollback_keeps_caller_utterance,
         test_deepgram_replayed_segment_dropped,
+        test_deepgram_reconnects_after_drop,
+        test_deepgram_flushes_pending_text_on_drop,
+        test_deepgram_send_survives_dead_socket,
         test_send_audio_generation_guard,
         test_worker_survives_barge_runs_redo_then_teardown_ends_it,
     ]

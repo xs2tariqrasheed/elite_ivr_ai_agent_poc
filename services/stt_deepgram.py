@@ -11,6 +11,7 @@ silence (the `endpointing` param), so a short reply like a bare "yes" still
 finalizes once the caller goes quiet — the failure mode we saw on the phone path
 where short affirmations never produced a transcript.
 """
+import asyncio
 import json
 import logging
 import time
@@ -47,6 +48,13 @@ _ENCODING_MAP = {"pcm_s16le": "linear16", "pcm_mulaw": "mulaw"}
 # closing the stream in the meantime.
 _KEEPALIVE_INTERVAL_SECONDS = 3.0
 
+# Mid-call reconnect policy. A phone call must survive the Deepgram socket
+# dying (seen live: keepalive ping timeout with no close frame — the connection
+# went silently dead and the whole session crashed). The receive loop re-dials
+# up to this many times with a growing backoff before giving up.
+_RECONNECT_MAX_ATTEMPTS = 3
+_RECONNECT_BACKOFF_SECONDS = 0.5
+
 
 def _dg_url(encoding: str, sample_rate: int) -> str:
     dg_encoding = _ENCODING_MAP.get(encoding, encoding)
@@ -71,6 +79,12 @@ class DeepgramStream:
         self.sample_rate = sample_rate
         self.ws = None
         self._last_keepalive = 0.0
+        self._closed = False
+        # Emitted turn counter. Lives on the instance (not per connection) so it
+        # keeps increasing across a mid-call reconnect — AudioBridge dedupes on
+        # turn_order, and a reset to 0 would silently drop every turn after the
+        # reconnect.
+        self._turn_order = 0
 
     async def connect(self):
         self.ws = await websockets.connect(
@@ -78,13 +92,47 @@ class DeepgramStream:
             extra_headers={"Authorization": f"Token {self.api_key}"},
             max_size=None,
             ping_interval=5,
-            ping_timeout=20,
+            ping_timeout=10,
         )
         return self
 
+    async def _reconnect(self) -> bool:
+        """Re-dial Deepgram after a mid-call socket death. Returns success.
+
+        Owned by the receive loop (`_events`) only, so the send paths never
+        race it — they just drop frames onto the dead/absent socket until the
+        fresh one is in place (Twilio audio is continuous; a few lost frames
+        during the ~1 s re-dial are inaudible to the pipeline).
+        """
+        old, self.ws = self.ws, None
+        if old is not None:
+            try:
+                await old.close()
+            except Exception:  # noqa: BLE001
+                pass
+        for attempt in range(1, _RECONNECT_MAX_ATTEMPTS + 1):
+            if self._closed:
+                return False
+            try:
+                await self.connect()
+                log.warning("Deepgram reconnected (attempt %d)", attempt)
+                return True
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Deepgram reconnect attempt %d failed: %s", attempt, exc)
+                await asyncio.sleep(_RECONNECT_BACKOFF_SECONDS * attempt)
+        return False
+
     async def send_audio(self, pcm: bytes):
-        if self.ws is not None:
-            await self.ws.send(pcm)
+        ws = self.ws
+        if ws is None:
+            return  # reconnect in progress: drop the frame, audio resumes after
+        try:
+            await ws.send(pcm)
+        except websockets.exceptions.ConnectionClosed:
+            # Dead socket. The receive loop detects the same closure and owns
+            # the reconnect; raising here would crash the whole session off the
+            # inbound-audio task (the live keepalive-timeout crash).
+            pass
 
     async def send_mute(self, nbytes: int):
         """The agent holds the floor: send NO audio, just a throttled KeepAlive.
@@ -99,12 +147,16 @@ class DeepgramStream:
         connection survives its 10 s no-audio timeout — the audio timeline simply
         resumes when real frames flow again after the mute lifts.
         """
-        if self.ws is None:
+        ws = self.ws
+        if ws is None:
             return
         now = time.monotonic()
         if now - self._last_keepalive >= _KEEPALIVE_INTERVAL_SECONDS:
             self._last_keepalive = now
-            await self.ws.send(json.dumps({"type": "KeepAlive"}))
+            try:
+                await ws.send(json.dumps({"type": "KeepAlive"}))
+            except websockets.exceptions.ConnectionClosed:
+                pass  # receive loop owns the reconnect (see send_audio)
 
     def __aiter__(self):
         return self._events()
@@ -115,7 +167,37 @@ class DeepgramStream:
         # end_of_turn event when the endpointer (speech_final) or the
         # UtteranceEnd backstop fires — giving AudioBridge one turn per reply,
         # with a strictly increasing turn_order for its dedupe.
-        turn_order = 0
+        #
+        # The outer loop is the mid-call reconnect: when the socket dies (seen
+        # live as a keepalive ping timeout with no close frame), re-dial and
+        # keep the call going instead of ending the stream. Any caller words
+        # already finalized on the dying connection are flushed as a turn first
+        # so they aren't lost.
+        while True:
+            connection_events = self._read_connection()
+            try:
+                async for event in connection_events:
+                    yield event
+            except websockets.exceptions.ConnectionClosed as exc:
+                log.error(
+                    "Deepgram closed the stream: code=%s reason=%r",
+                    exc.code, exc.reason,
+                )
+            if self._closed:
+                return
+            if not await self._reconnect():
+                yield {
+                    "type": "Error",
+                    "error": "Deepgram stream lost and reconnect failed",
+                }
+                return
+
+    async def _read_connection(self):
+        """Yield pipeline events from the current socket until it closes.
+
+        Raises ConnectionClosed to the caller (`_events`) on an abnormal drop,
+        after flushing any accumulated final segments as a completed turn.
+        """
         final_text = ""
         # Audio-timeline watermark (seconds): end of the newest is_final segment
         # accepted so far. Deepgram occasionally re-emits Results covering audio
@@ -123,8 +205,20 @@ class DeepgramStream:
         # of the previous utterance arriving several seconds later, which was
         # then dispatched and answered a second time. A genuine new utterance
         # always advances the timeline, so any segment ending at or before the
-        # watermark is a replay and is dropped.
+        # watermark is a replay and is dropped. Per-connection: a reconnected
+        # stream restarts its timeline at zero, so carrying the old watermark
+        # over would drop every post-reconnect segment as a "replay".
         finalized_until = 0.0
+
+        def _turn(text: str, end_of_turn: bool, formatted: bool) -> dict:
+            return {
+                "type": "Turn",
+                "transcript": text.strip(),
+                "end_of_turn": end_of_turn,
+                "turn_order": self._turn_order,
+                "turn_is_formatted": formatted,
+            }
+
         try:
             async for raw in self.ws:
                 try:
@@ -143,15 +237,9 @@ class DeepgramStream:
 
                 if mtype == "UtteranceEnd":
                     if final_text:
-                        yield {
-                            "type": "Turn",
-                            "transcript": final_text.strip(),
-                            "end_of_turn": True,
-                            "turn_order": turn_order,
-                            "turn_is_formatted": True,
-                        }
+                        yield _turn(final_text, True, True)
                         final_text = ""
-                        turn_order += 1
+                        self._turn_order += 1
                     continue
 
                 if mtype != "Results":
@@ -181,60 +269,35 @@ class DeepgramStream:
                     # Silence frame. If it carries the endpoint flag, flush any
                     # accumulated final segments as a completed turn.
                     if speech_final and final_text:
-                        yield {
-                            "type": "Turn",
-                            "transcript": final_text.strip(),
-                            "end_of_turn": True,
-                            "turn_order": turn_order,
-                            "turn_is_formatted": True,
-                        }
+                        yield _turn(final_text, True, True)
                         final_text = ""
-                        turn_order += 1
+                        self._turn_order += 1
                     continue
 
                 if is_final:
                     finalized_until = max(finalized_until, seg_end)
                     final_text = (final_text + " " + text).strip()
                     if speech_final:
-                        yield {
-                            "type": "Turn",
-                            "transcript": final_text.strip(),
-                            "end_of_turn": True,
-                            "turn_order": turn_order,
-                            "turn_is_formatted": True,
-                        }
+                        yield _turn(final_text, True, True)
                         final_text = ""
-                        turn_order += 1
+                        self._turn_order += 1
                     else:
-                        yield {
-                            "type": "Turn",
-                            "transcript": final_text.strip(),
-                            "end_of_turn": False,
-                            "turn_order": turn_order,
-                            "turn_is_formatted": False,
-                        }
+                        yield _turn(final_text, False, False)
                 else:
                     # Interim hypothesis: show accumulated finals plus the live
                     # guess, but don't commit it to the buffer.
-                    interim = (final_text + " " + text).strip()
-                    yield {
-                        "type": "Turn",
-                        "transcript": interim,
-                        "end_of_turn": False,
-                        "turn_order": turn_order,
-                        "turn_is_formatted": False,
-                    }
-        except websockets.exceptions.ConnectionClosed as exc:
-            log.error(
-                "Deepgram closed the stream: code=%s reason=%r",
-                exc.code, exc.reason,
-            )
-            raise RuntimeError(
-                f"Deepgram closed the stream (code {exc.code}): "
-                f"{exc.reason or 'no reason given'}"
-            ) from exc
+                    yield _turn(f"{final_text} {text}", False, False)
+        except websockets.exceptions.ConnectionClosed:
+            # Flush what the caller already said (finalized segments that never
+            # got their endpoint) as a completed turn so the words survive the
+            # drop, then let _events decide whether to reconnect.
+            if final_text:
+                yield _turn(final_text, True, True)
+                self._turn_order += 1
+            raise
 
     async def close(self):
+        self._closed = True  # stops any reconnect attempt racing the teardown
         if self.ws is not None:
             try:
                 await self.ws.send(json.dumps({"type": "CloseStream"}))

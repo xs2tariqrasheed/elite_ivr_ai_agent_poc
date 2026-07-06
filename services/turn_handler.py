@@ -282,27 +282,20 @@ class TurnHandler:
                     pass
 
         if interrupted and not self._state.closed:
-            # Barge-in (or any non-teardown interrupt). What to prune depends on
-            # whether the agent had started replying:
-            #   * It produced spoken text → the caller interrupted a real reply
-            #     (a correction/redo). Wipe the whole turn — abandoned reply, the
-            #     caller utterance that triggered it, and any tool-call pairs — so
-            #     the redo starts from the pre-turn checkpoint.
-            #   * It produced nothing yet (interrupted during the gap filler /
-            #     while composing) → the caller did not interrupt a reply, they
-            #     just kept talking. Often STT split one sentence into fragments
-            #     on a pause; discarding this fragment is what previously made the
-            #     agent lose the pickup address. Keep the caller's utterance so it
-            #     carries into the next turn and the full sentence is reassembled.
-            spoke_reply = bool("".join(collected).strip())
-            await self._agent.rollback_barge(
-                pre_ids, keep_user_message=not spoke_reply
+            # Barge-in (or any non-teardown interrupt): prune ONLY what the
+            # agent added this turn — the abandoned (partly spoken) reply and
+            # any tool-call pairs. The caller's utterance is ALWAYS kept: the
+            # next turn regenerates the reply from the full history of what the
+            # caller said, so every barge behaves like a natural interruption —
+            # the agent shuts up, and its next reply accounts for everything
+            # said so far. (Wiping the utterance on a mid-reply barge is what
+            # previously made the agent "forget" the pickup time it had just
+            # been given and ask for it again.)
+            await self._agent.rollback_barge(pre_ids, keep_user_message=True)
+            log.info(
+                "Turn interrupted; pruned agent reply, kept caller utterance: %r",
+                text,
             )
-            if not spoke_reply:
-                log.info(
-                    "Turn interrupted before reply; preserving caller utterance: %r",
-                    text,
-                )
         try:
             await self._client.send_json({"type": "speaking_end"})
         except Exception:
