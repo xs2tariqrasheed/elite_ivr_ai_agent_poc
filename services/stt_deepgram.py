@@ -87,12 +87,21 @@ class DeepgramStream:
         self._turn_order = 0
 
     async def connect(self):
+        # ping_interval=None disables the websockets library's own WS-level
+        # ping/pong keepalive. Left on (the default), it PINGs every few seconds
+        # and hard-closes with code 1011 "keepalive ping timeout" if a PONG is
+        # slow to return — which fired live during caller-silence gaps where this
+        # path sends no audio (only a 3 s app-level KeepAlive), tearing down a
+        # healthy connection and dumping an uncatchable asyncio traceback from the
+        # library's internal keepalive task. We don't need it: Deepgram's own
+        # no-audio timeout is held off by our KeepAlive frames, and a genuinely
+        # dead socket still surfaces as a ConnectionClosed on the next read/send,
+        # which _events already catches and reconnects.
         self.ws = await websockets.connect(
             _dg_url(self.encoding, self.sample_rate),
             extra_headers={"Authorization": f"Token {self.api_key}"},
             max_size=None,
-            ping_interval=5,
-            ping_timeout=10,
+            ping_interval=None,
         )
         return self
 

@@ -180,8 +180,8 @@ class AudioBridge:
                     log.info("STT listening (mute released)")
                 was_muted = muted
             # Diagnostic VAD: while listening, log when the caller's audio
-            # starts/stops, independent of AssemblyAI. Comparing this trace
-            # against the AAI Turn logs tells us whether a quiet stretch is the
+            # starts/stops, independent of the STT provider. Comparing this trace
+            # against the STT Turn logs tells us whether a quiet stretch is the
             # caller thinking vs. STT failing to transcribe live speech.
             if muted:
                 voice_on = False
@@ -372,7 +372,7 @@ class AudioBridge:
             transcript = (event.get("transcript") or "").strip()
             end_of_turn = bool(event.get("end_of_turn"))
             log.info(
-                "AAI Turn order=%s eot=%s fmt=%s text=%r",
+                "STT Turn order=%s eot=%s fmt=%s text=%r",
                 event.get("turn_order"),
                 end_of_turn,
                 event.get("turn_is_formatted"),
