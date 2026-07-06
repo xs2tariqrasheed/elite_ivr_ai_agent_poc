@@ -1,12 +1,15 @@
 """Adapts Twilio Media Streams to the WebSocket interface the pipeline expects.
 
 Twilio sends and receives base64 G.711 μ-law at 8 kHz. Outbound TTS is emitted
-as μ-law so it plays back natively (see configs.TWILIO_AUDIO), but inbound caller
-audio is transcoded to PCM16@16k (see services.audio) before STT, since
-AssemblyAI's universal-streaming model only transcribes reliably at 16 kHz. The
-pipeline talks to this object exactly as it talks to a browser WebSocket; only
-the wire framing differs, so AudioBridge and TurnHandler need no Twilio
-awareness.
+as μ-law so it plays back natively (see configs.TWILIO_AUDIO). Inbound caller
+audio is forwarded in whatever encoding the session's STT format asks for:
+native μ-law@8k for Deepgram (which transcribes telephony μ-law directly —
+upsampling to PCM16@16k quadrupled the STT upstream to 256 kbps and made the
+transcript lag behind real time on constrained uplinks), or transcoded to
+PCM16@16k for AssemblyAI, whose universal-streaming model only transcribes
+reliably at 16 kHz. The pipeline talks to this object exactly as it talks to a
+browser WebSocket; only the wire framing differs, so AudioBridge and
+TurnHandler need no Twilio awareness.
 """
 import base64
 import json
@@ -27,8 +30,10 @@ class TwilioTransport:
     # forwarding so STT doesn't reject the stream (close code 3007).
     _CHUNK_BYTES = 800
 
-    def __init__(self, ws: WebSocket) -> None:
+    def __init__(self, ws: WebSocket, stt_encoding: str = "pcm_s16le") -> None:
         self._ws = ws
+        # μ-law passthrough (Deepgram) vs PCM16@16k transcode (AssemblyAI).
+        self._mulaw_passthrough = stt_encoding == "pcm_mulaw"
         self._stream_sid: str | None = None
         # custom <Parameter> values declared in the TwiML <Stream>, e.g. agent.
         self.custom_parameters: dict = {}
@@ -75,9 +80,11 @@ class TwilioTransport:
         if event == "media":
             self._inbound.extend(base64.b64decode(evt["media"]["payload"]))
             if len(self._inbound) >= self._CHUNK_BYTES:
-                # Coalesced μ-law@8k -> PCM16@16k for AssemblyAI (see services.audio).
-                chunk = mulaw8k_to_pcm16_16k(bytes(self._inbound))
+                raw = bytes(self._inbound)
                 self._inbound.clear()
+                # Native μ-law for Deepgram; PCM16@16k transcode for AssemblyAI
+                # (see services.audio and configs.twilio_audio_format).
+                chunk = raw if self._mulaw_passthrough else mulaw8k_to_pcm16_16k(raw)
                 if not self._forwarded:
                     self._forwarded = True
                     log.info("Twilio inbound audio forwarding to STT")

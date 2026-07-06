@@ -106,6 +106,27 @@ TWILIO_AUDIO = AudioFormat(
     stt_sample_rate=16000,
     tts_output_format="ulaw_8000",
 )
+# Deepgram (nova-3) transcribes native telephony μ-law@8k directly, so the
+# Twilio path can skip the PCM16@16k transcode entirely. That matters beyond
+# CPU: upsampling turned the 64 kbps caller stream into a 256 kbps continuous
+# upstream to STT, which on a constrained uplink falls behind real time — the
+# transcript then lags tens of seconds and the agent appears deaf (seen live).
+TWILIO_AUDIO_MULAW = AudioFormat(
+    stt_encoding="pcm_mulaw",
+    stt_sample_rate=8000,
+    tts_output_format="ulaw_8000",
+)
+
+
+def twilio_audio_format(stt_provider: str) -> AudioFormat:
+    """Pick the Twilio-call audio format for the configured STT provider.
+
+    Deepgram handles μ-law@8k natively; AssemblyAI's universal-streaming model
+    needs the PCM16@16k transcode (raw 8 kHz μ-law yields no transcription).
+    """
+    if (stt_provider or "").lower() == "deepgram":
+        return TWILIO_AUDIO_MULAW
+    return TWILIO_AUDIO
 
 
 settings = Settings()

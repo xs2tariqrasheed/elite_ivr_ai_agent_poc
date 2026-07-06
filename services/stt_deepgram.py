@@ -21,7 +21,8 @@ import websockets
 log = logging.getLogger("voice")
 
 # Deepgram model used for transcription. nova-3 is the latest general model and
-# handles 16 kHz telephony audio (upsampled from μ-law) well.
+# transcribes native telephony μ-law@8k (the Twilio path) as well as PCM16@16k
+# (the browser path).
 _MODEL = "nova-3"
 
 # Milliseconds of trailing silence after speech before Deepgram finalizes the
@@ -43,10 +44,9 @@ _UTTERANCE_END_MS = 1000
 # Deepgram's encoding names.
 _ENCODING_MAP = {"pcm_s16le": "linear16", "pcm_mulaw": "mulaw"}
 
-# While the agent holds the floor no audio is sent (see send_mute); a KeepAlive
-# at this cadence stops Deepgram's 10-second no-audio timeout (NET-0001) from
-# closing the stream in the meantime.
-_KEEPALIVE_INTERVAL_SECONDS = 3.0
+# Silence fill bytes per encoding, streamed while the agent holds the floor
+# (see send_mute). μ-law encodes zero amplitude as 0xFF; PCM16 as 0x00.
+_SILENCE_BYTE = {"pcm_mulaw": b"\xff", "pcm_s16le": b"\x00"}
 
 # Mid-call reconnect policy. A phone call must survive the Deepgram socket
 # dying (seen live: keepalive ping timeout with no close frame — the connection
@@ -54,6 +54,17 @@ _KEEPALIVE_INTERVAL_SECONDS = 3.0
 # up to this many times with a growing backoff before giving up.
 _RECONNECT_MAX_ATTEMPTS = 3
 _RECONNECT_BACKOFF_SECONDS = 0.5
+
+# Outbound audio queue bound (~100 ms frames, so ~3 s of audio). If the uplink
+# to Deepgram can't sustain real time, the OLDEST frames are dropped so the
+# stream stays near-live: a transcript that lags tens of seconds behind the
+# caller (seen live — the agent answered half a minute late and the caller hung
+# up) is far worse than a clipped word. The queue also decouples the Twilio
+# inbound loop from Deepgram's socket, so a stalled send can never block
+# barge-in detection or inbound frame processing.
+_SEND_QUEUE_MAX_FRAMES = 30
+# Throttle for the dropped-frames warning.
+_DROP_LOG_INTERVAL_SECONDS = 2.0
 
 
 def _dg_url(encoding: str, sample_rate: int) -> str:
@@ -78,31 +89,40 @@ class DeepgramStream:
         self.encoding = encoding
         self.sample_rate = sample_rate
         self.ws = None
-        self._last_keepalive = 0.0
         self._closed = False
         # Emitted turn counter. Lives on the instance (not per connection) so it
         # keeps increasing across a mid-call reconnect — AudioBridge dedupes on
         # turn_order, and a reset to 0 would silently drop every turn after the
         # reconnect.
         self._turn_order = 0
+        # Bounded outbound queue + sender task (see _SEND_QUEUE_MAX_FRAMES).
+        self._send_q: asyncio.Queue[bytes] | None = None
+        self._sender: asyncio.Task | None = None
+        self._dropped_frames = 0
+        self._last_drop_log = 0.0
 
     async def connect(self):
         # ping_interval=None disables the websockets library's own WS-level
         # ping/pong keepalive. Left on (the default), it PINGs every few seconds
         # and hard-closes with code 1011 "keepalive ping timeout" if a PONG is
-        # slow to return — which fired live during caller-silence gaps where this
-        # path sends no audio (only a 3 s app-level KeepAlive), tearing down a
-        # healthy connection and dumping an uncatchable asyncio traceback from the
-        # library's internal keepalive task. We don't need it: Deepgram's own
-        # no-audio timeout is held off by our KeepAlive frames, and a genuinely
-        # dead socket still surfaces as a ConnectionClosed on the next read/send,
-        # which _events already catches and reconnects.
+        # slow to return — which fired live, tearing down a healthy connection
+        # and dumping an uncatchable asyncio traceback from the library's
+        # internal keepalive task. We don't need it: audio (or silence fill, see
+        # send_mute) flows continuously so Deepgram's no-audio timeout never
+        # trips, and a genuinely dead socket still surfaces as a
+        # ConnectionClosed on the next read/send, which _events already catches
+        # and reconnects.
         self.ws = await websockets.connect(
             _dg_url(self.encoding, self.sample_rate),
             extra_headers={"Authorization": f"Token {self.api_key}"},
             max_size=None,
             ping_interval=None,
         )
+        # One sender for the stream's lifetime; it reads whatever socket is
+        # current, so a mid-call reconnect doesn't need to restart it.
+        if self._sender is None:
+            self._send_q = asyncio.Queue(maxsize=_SEND_QUEUE_MAX_FRAMES)
+            self._sender = asyncio.create_task(self._send_loop())
         return self
 
     async def _reconnect(self) -> bool:
@@ -132,40 +152,67 @@ class DeepgramStream:
         return False
 
     async def send_audio(self, pcm: bytes):
-        ws = self.ws
-        if ws is None:
-            return  # reconnect in progress: drop the frame, audio resumes after
-        try:
-            await ws.send(pcm)
-        except websockets.exceptions.ConnectionClosed:
-            # Dead socket. The receive loop detects the same closure and owns
-            # the reconnect; raising here would crash the whole session off the
-            # inbound-audio task (the live keepalive-timeout crash).
-            pass
+        """Queue a frame for the sender task; never blocks the inbound loop.
+
+        When the queue is full the uplink is behind real time — drop the OLDEST
+        frame so what Deepgram hears stays near-live instead of drifting an
+        unbounded distance behind the caller.
+        """
+        q = self._send_q
+        if q is None:
+            return  # not connected yet
+        while True:
+            try:
+                q.put_nowait(pcm)
+                return
+            except asyncio.QueueFull:
+                try:
+                    q.get_nowait()
+                    self._dropped_frames += 1
+                except asyncio.QueueEmpty:
+                    pass
+                now = time.monotonic()
+                if now - self._last_drop_log >= _DROP_LOG_INTERVAL_SECONDS:
+                    self._last_drop_log = now
+                    log.warning(
+                        "Deepgram uplink behind real time; dropped %d oldest "
+                        "audio frame(s) to stay live",
+                        self._dropped_frames,
+                    )
+                    self._dropped_frames = 0
+
+    async def _send_loop(self):
+        """Drain the queue onto whatever socket is currently live."""
+        while not self._closed:
+            pcm = await self._send_q.get()
+            ws = self.ws
+            if ws is None:
+                continue  # reconnect in progress: drop, audio resumes after
+            try:
+                await ws.send(pcm)
+            except websockets.exceptions.ConnectionClosed:
+                # Dead socket. The receive loop detects the same closure and
+                # owns the reconnect; raising here would crash the sender.
+                pass
 
     async def send_mute(self, nbytes: int):
-        """The agent holds the floor: send NO audio, just a throttled KeepAlive.
+        """The agent holds the floor: stream equal-length real-time SILENCE.
 
-        The zero-fill approach (equal-length silence for every muted frame) kept
-        Deepgram chewing through 256 kbps of digital zeros for the whole of every
-        agent turn. On a constrained uplink that stream falls behind real time,
-        and the growing backlog surfaced live as multi-second transcript lag and
-        Deepgram re-emitting already-finalized audio (see the replay guard in
-        `_events`). Deepgram's documented pattern for "caller shouldn't be heard
-        right now" is to pause the audio and send KeepAlive text frames so the
-        connection survives its 10 s no-audio timeout — the audio timeline simply
-        resumes when real frames flow again after the mute lifts.
+        Deepgram paces its streaming decode against the audio timeline it
+        receives, so the earlier KeepAlive-pause approach (send nothing while
+        muted) put an N-second hole in the stream and everything AFTER the hole
+        surfaced ~N seconds late — seen live as transcripts lagging 7-8 s behind
+        the caller right after every agent reply, even with a healthy uplink.
+        Streaming silence keeps the timeline continuous (and Deepgram's
+        endpointing timers running) at real-time cadence.
+
+        The 256 kbps zero-fill burden that originally motivated the pause is
+        gone: the phone path now sends native μ-law@8k, so silence costs 8 KB/s.
+        On a genuinely constrained uplink the bounded send queue drops oldest
+        frames to stay live — and dropped silence is free.
         """
-        ws = self.ws
-        if ws is None:
-            return
-        now = time.monotonic()
-        if now - self._last_keepalive >= _KEEPALIVE_INTERVAL_SECONDS:
-            self._last_keepalive = now
-            try:
-                await ws.send(json.dumps({"type": "KeepAlive"}))
-            except websockets.exceptions.ConnectionClosed:
-                pass  # receive loop owns the reconnect (see send_audio)
+        fill = _SILENCE_BYTE.get(self.encoding, b"\x00")
+        await self.send_audio(fill * nbytes)
 
     def __aiter__(self):
         return self._events()
@@ -307,6 +354,13 @@ class DeepgramStream:
 
     async def close(self):
         self._closed = True  # stops any reconnect attempt racing the teardown
+        if self._sender is not None:
+            self._sender.cancel()
+            try:
+                await self._sender
+            except BaseException:
+                pass
+            self._sender = None
         if self.ws is not None:
             try:
                 await self.ws.send(json.dumps({"type": "CloseStream"}))

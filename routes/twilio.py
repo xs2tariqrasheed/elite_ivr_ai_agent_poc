@@ -14,7 +14,7 @@ from xml.sax.saxutils import quoteattr
 from fastapi import APIRouter, Request, WebSocket
 from fastapi.responses import Response
 
-from configs.settings import TWILIO_AUDIO, settings
+from configs.settings import settings, twilio_audio_format
 from db.accounts import get_account_by_phone
 from services.twilio_transport import TwilioTransport
 from services.voice_session import VoiceSession
@@ -54,7 +54,10 @@ async def twilio_voice(request: Request):
 @router.websocket("/twilio/stream")
 async def twilio_stream(ws: WebSocket):
     log.info("Twilio /twilio/stream WS connection opened")
-    transport = TwilioTransport(ws)
+    # Deepgram takes native μ-law@8k (no transcode, 4x less STT upstream);
+    # AssemblyAI needs the PCM16@16k transcode. See configs.twilio_audio_format.
+    fmt = twilio_audio_format(settings.stt_provider)
+    transport = TwilioTransport(ws, stt_encoding=fmt.stt_encoding)
     await transport.accept()
     # Block until Twilio's `start` frame so the stream SID (needed to send audio
     # back) is known before the opening greeting is synthesized.
@@ -78,5 +81,5 @@ async def twilio_stream(ws: WebSocket):
     log.info("Twilio call connected; agent=%s", agent_name)
     await VoiceSession(
         transport, settings, agent_name=agent_name, params=params,
-        audio_format=TWILIO_AUDIO,
+        audio_format=fmt,
     ).run()

@@ -5,10 +5,10 @@ import time
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-import numpy as np
 from fastapi import WebSocket, WebSocketDisconnect
 
 from configs.settings import Settings
+from services.audio import mean_abs_level
 from services.pipeline_state import PipelineState
 from services.stt import AssemblyAIStream
 
@@ -36,10 +36,14 @@ class AudioBridge:
         state: PipelineState,
         on_turn: Callable[..., Coroutine[Any, Any, None]],
         settings: Settings,
+        stt_encoding: str = "pcm_s16le",
     ) -> None:
         self._client = client
         self._stt = stt
         self._state = state
+        # Wire encoding of inbound frames ("pcm_s16le" or "pcm_mulaw") — level
+        # metering decodes accordingly so thresholds stay on the PCM16 scale.
+        self._stt_encoding = stt_encoding
         self._on_turn = on_turn  # handle_turn(text, user_stopped_at=..., gap_filler=...)
         self._settings = settings
         # Turns are queued and run one at a time. Even with barge-in, only one
@@ -153,8 +157,7 @@ class AudioBridge:
             now = time.monotonic()
             echo_tail = self._settings.barge_in_echo_tail_seconds
             audible = now < self._state.speaking_until + echo_tail
-            samples = np.frombuffer(data, dtype=np.int16)
-            level = int(np.abs(samples.astype(np.int32)).mean()) if samples.size else 0
+            level = mean_abs_level(data, self._stt_encoding)
 
             if self._settings.barge_in_enabled:
                 await self._detect_barge_in(data, level, now, audible)
@@ -192,10 +195,9 @@ class AudioBridge:
                 voice_on = False
                 log.info("Caller audio stopped")
             if muted:
-                # Deepgram: no audio + throttled KeepAlive (streaming zero-fill
-                # for whole agent turns built a decode backlog that surfaced as
-                # multi-second transcript lag and replayed segments). AssemblyAI:
-                # equal-length zeros, as before.
+                # Equal-length real-time silence, so the STT audio timeline
+                # stays continuous (a pause here makes every later transcript
+                # surface late by the pause's length; see DeepgramStream.send_mute).
                 await self._stt.send_mute(len(data))
             else:
                 await self._stt.send_audio(data)

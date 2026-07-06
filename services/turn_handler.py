@@ -4,7 +4,7 @@ import logging
 import time
 import traceback
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 from agents.base import VoiceAgent
 from configs.settings import Settings
@@ -268,6 +268,12 @@ class TurnHandler:
                 raise
             interrupted = True
             log.info("Turn cancelled by barge-in")
+        except WebSocketDisconnect:
+            # The caller hung up mid-reply (transport closed under a send).
+            # Mark the session closed so the rest of the pipeline treats its
+            # teardown as expected instead of logging an Agent/TTS traceback.
+            self._state.closed = True
+            log.info("Transport closed mid-turn (caller hung up); abandoning reply")
         except Exception as exc:  # noqa: BLE001
             if self._state.closed:
                 log.info("Turn aborted after disconnect")

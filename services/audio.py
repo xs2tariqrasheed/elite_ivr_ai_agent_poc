@@ -27,6 +27,23 @@ def _build_mulaw_table() -> np.ndarray:
 _MULAW_TO_PCM16 = _build_mulaw_table()
 
 
+def mean_abs_level(data: bytes, encoding: str = "pcm_s16le") -> int:
+    """Mean absolute amplitude of a frame, on the PCM16 scale for any encoding.
+
+    Barge-in / VAD thresholds are calibrated against PCM16 mean-abs levels, so
+    μ-law frames are decoded through the same lookup table the transcode uses —
+    a given caller loudness reads identically whether STT receives native μ-law
+    (Deepgram) or transcoded PCM16 (AssemblyAI).
+    """
+    if not data:
+        return 0
+    if encoding == "pcm_mulaw":
+        samples = _MULAW_TO_PCM16[np.frombuffer(data, dtype=np.uint8)]
+    else:
+        samples = np.frombuffer(data, dtype=np.int16)
+    return int(np.abs(samples.astype(np.int32)).mean()) if samples.size else 0
+
+
 def mulaw8k_to_pcm16_16k(mulaw: bytes) -> bytes:
     """Decode μ-law@8 kHz to little-endian PCM16 and linearly upsample to 16 kHz."""
     if not mulaw:

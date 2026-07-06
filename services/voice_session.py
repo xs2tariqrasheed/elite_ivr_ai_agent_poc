@@ -46,7 +46,8 @@ class VoiceSession:
             tts_output_format=fmt.tts_output_format,
         )
         self._bridge = AudioBridge(
-            client, self._stt, state, self._turn_handler.handle_turn, settings
+            client, self._stt, state, self._turn_handler.handle_turn, settings,
+            stt_encoding=fmt.stt_encoding,
         )
         self._state = state
 
