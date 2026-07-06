@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from websockets.exceptions import ConnectionClosedOK
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
 from configs.settings import settings
 from db import models  # noqa: F401 - ensure models register on Base before create_all
@@ -39,14 +39,28 @@ async def lifespan(app: FastAPI):
     When the caller hangs up, the `websockets` library's internal keepalive-ping
     task can surface a *clean* close (ConnectionClosedOK) that nothing awaits, so
     asyncio dumps it via the default handler at ERROR level even though the call
-    ended normally. Downgrade just that case to debug; everything else falls
-    through to the default handler untouched.
+    ended normally. The same happens as ConnectionClosedError when *we* send the
+    normal close (code 1000) at teardown and the peer (Deepgram) drops the TCP
+    connection without replying with its own close frame — websockets labels the
+    missing reply an "error" but the session is already over. Downgrade just
+    those cases to debug; everything else falls through to the default handler
+    untouched.
     """
     loop = asyncio.get_running_loop()
     previous = loop.get_exception_handler()
 
+    def _is_benign_close(exc) -> bool:
+        if isinstance(exc, ConnectionClosedOK):
+            return True
+        return (
+            isinstance(exc, ConnectionClosed)
+            and exc.rcvd is None
+            and exc.sent is not None
+            and exc.sent.code == 1000
+        )
+
     def handler(loop_, context):
-        if isinstance(context.get("exception"), ConnectionClosedOK):
+        if _is_benign_close(context.get("exception")):
             log.debug("Ignored benign websocket close: %s", context.get("message"))
             return
         (previous or loop_.default_exception_handler)(context)
