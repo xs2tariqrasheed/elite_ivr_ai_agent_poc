@@ -329,6 +329,16 @@ def final_turn_event(text, order=0):
     }
 
 
+def partial_turn_event(text, order=0):
+    return {
+        "type": "Turn",
+        "transcript": text,
+        "end_of_turn": False,
+        "turn_order": order,
+        "turn_is_formatted": False,
+    }
+
+
 async def run_stt_to_agent(state, settings, events):
     """Drive stt_to_agent over `events`; return the bridge (inspect ._turns)."""
     stt = FakeEventSTT(events)
@@ -421,6 +431,149 @@ async def test_greeting_composing_final_does_not_prune():
     assert state.barge_generation == gen0, "greeting must not be pruned"
     assert not task.cancelled(), "greeting turn must survive"
     task.cancel()
+
+
+def make_event_bridge(state, settings, events, dispatched_text="", transport=None):
+    """Bridge wired to a FakeEventSTT, with a prior dispatched turn installed."""
+    transport = transport or FakeTransport()
+
+    async def _noop_turn(*a, **k):
+        await asyncio.sleep(100)
+
+    bridge = AudioBridge(transport, FakeEventSTT(events), state, _noop_turn, settings)
+    bridge._last_dispatched_text = dispatched_text
+    return bridge, transport
+
+
+async def test_partial_new_speech_while_audible_barges():
+    """The Friday/Tuesday call: the caller amended their request while the turn
+    composed; STT lag surfaced the first partial ('Actually,') only after the
+    stale reply had started playing. That partial is a NEW turn and cannot be
+    echo (STT is muted while audible) — it must cut the reply immediately, not
+    let it play out until the final lands seconds later."""
+    state = PipelineState()
+    task = live_turn(state)          # TTS still streaming the stale reply
+    state.speaking_until = 1e18      # reply audio on the wire
+    state.last_dispatched_turn = 0
+    gen0 = state.barge_generation
+    bridge, transport = make_event_bridge(
+        state,
+        make_settings(),
+        [partial_turn_event("Actually, do it for", order=1)],
+        dispatched_text="Can you book me a reservation for next week, Friday?",
+    )
+    await bridge.stt_to_agent()
+    assert state.barge_generation == gen0 + 1, "new-speech partial must barge"
+    assert transport.clears == 1, "stale reply must be flushed"
+    await asyncio.sleep(0)
+    assert task.cancelled(), "stale turn must be cancelled"
+    assert bridge._turns.empty(), "partials never enqueue; the final dispatches"
+
+
+async def test_partial_echo_of_dispatched_does_not_barge():
+    """A lagging re-decode of the just-answered utterance (new turn_order, same
+    words) surfacing during playback is stale audio, not an interruption."""
+    state = PipelineState()
+    task = live_turn(state)
+    state.speaking_until = 1e18
+    state.last_dispatched_turn = 0
+    gen0 = state.barge_generation
+    bridge, transport = make_event_bridge(
+        state,
+        make_settings(),
+        [partial_turn_event("book me a reservation for next week", order=1)],
+        dispatched_text="Can you book me a reservation for next week, Friday?",
+    )
+    await bridge.stt_to_agent()
+    assert state.barge_generation == gen0, "echo partial must not barge"
+    assert transport.clears == 0
+    assert not task.cancelled()
+    task.cancel()
+
+
+async def test_partial_while_composing_does_not_barge():
+    """Partials still never cancel a composing turn (nothing audible): an
+    impatient 'hello?' must not kill a slow turn before its final can be
+    merged into the redo."""
+    state = PipelineState()
+    task = live_turn(state)
+    state.speaking_until = 0.0       # composing: nothing on the wire
+    state.last_dispatched_turn = 0
+    gen0 = state.barge_generation
+    bridge, transport = make_event_bridge(
+        state,
+        make_settings(),
+        [partial_turn_event("hello?", order=1)],
+        dispatched_text="Can you book me a reservation for next week, Friday?",
+    )
+    await bridge.stt_to_agent()
+    assert state.barge_generation == gen0, "composing partial must not barge"
+    assert transport.clears == 0
+    assert not task.cancelled()
+    task.cancel()
+
+
+async def test_partial_cannot_cut_greeting_tail():
+    """Call-start speech ('Hello?' at pickup) transcribed from the greeting's
+    composing window must not cut the greeting — even in its audible tail,
+    after greeting_active has been cleared. No caller turn has been dispatched
+    yet, which is the guard."""
+    state = PipelineState()
+    state.turn_task = None           # greeting turn done, audio still playing
+    state.speaking_until = 1e18
+    state.greeting_active = False    # cleared by the worker's finally
+    gen0 = state.barge_generation
+    bridge, transport = make_event_bridge(
+        state,
+        make_settings(),
+        [partial_turn_event("Hello?", order=0)],
+        dispatched_text="",          # nothing dispatched yet
+    )
+    await bridge.stt_to_agent()
+    assert state.barge_generation == gen0, "greeting tail must survive"
+    assert transport.clears == 0
+
+
+async def test_final_new_speech_while_audible_barges_and_dispatches():
+    """If STT skips straight to a final (no partial) and it lands while the
+    stale reply is playing, the correction must not be dropped as stale — it
+    barges and dispatches, so the caller's amendment is answered."""
+    state = PipelineState()
+    state.turn_task = None           # turn done, reply audio still playing
+    state.speaking_until = 1e18
+    state.last_dispatched_turn = 0
+    gen0 = state.barge_generation
+    bridge, transport = make_event_bridge(
+        state,
+        make_settings(),
+        [final_turn_event("Actually, do it for next week, Tuesday.", order=1)],
+        dispatched_text="Can you book me a reservation for next week, Friday?",
+    )
+    await bridge.stt_to_agent()
+    assert state.barge_generation == gen0 + 1, "new-speech final must barge"
+    assert transport.clears == 1, "stale reply must be flushed"
+    assert bridge._turns.qsize() == 1, "the correction must dispatch"
+
+
+async def test_final_echo_of_dispatched_dropped_while_audible():
+    """The original stale-final protection survives: a lagging duplicate of the
+    just-answered utterance landing during playback is dropped, not answered a
+    second time."""
+    state = PipelineState()
+    state.turn_task = None
+    state.speaking_until = 1e18
+    state.last_dispatched_turn = 0
+    gen0 = state.barge_generation
+    bridge, transport = make_event_bridge(
+        state,
+        make_settings(),
+        [final_turn_event("book me a reservation for next week Friday", order=1)],
+        dispatched_text="Can you book me a reservation for next week, Friday?",
+    )
+    await bridge.stt_to_agent()
+    assert bridge._turns.empty(), "echo final must be dropped"
+    assert state.barge_generation == gen0, "echo final must not barge"
+    assert transport.clears == 0
 
 
 async def test_worker_merges_queued_fragments():
@@ -727,6 +880,12 @@ async def main():
         test_final_dispatched_when_idle,
         test_composing_final_prunes_inflight_turn,
         test_greeting_composing_final_does_not_prune,
+        test_partial_new_speech_while_audible_barges,
+        test_partial_echo_of_dispatched_does_not_barge,
+        test_partial_while_composing_does_not_barge,
+        test_partial_cannot_cut_greeting_tail,
+        test_final_new_speech_while_audible_barges_and_dispatches,
+        test_final_echo_of_dispatched_dropped_while_audible,
         test_worker_merges_queued_fragments,
         test_barge_keeps_queued_turns,
         test_barge_rollback_keeps_caller_utterance,

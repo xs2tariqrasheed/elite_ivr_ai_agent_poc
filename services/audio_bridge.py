@@ -26,6 +26,20 @@ _VOICE_LEVEL = 400
 _PREBUFFER_MAX_FRAMES = 50
 
 
+def _normalize_text(text: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace — for echo comparison.
+
+    "Can you book me a reservation for next week, Friday?" and a lagging
+    re-decode "can you book me a reservation for next week friday" must compare
+    equal, so the stale-echo check is insensitive to case/punctuation drift
+    between STT passes.
+    """
+    cleaned = "".join(
+        ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text
+    )
+    return " ".join(cleaned.split())
+
+
 class AudioBridge:
     """Bridges browser mic audio through STT and dispatches final turns to the agent."""
 
@@ -63,6 +77,10 @@ class AudioBridge:
         self._barge_prebuffer: list[bytes] = []
         # Throttle for the "barge-watch" diagnostic level log.
         self._barge_log_at = 0.0
+        # Text of the last dispatched caller turn, for the stale-echo check: a
+        # lagging STT decode can re-emit the just-answered utterance under a new
+        # turn_order while the reply plays — that must not read as new speech.
+        self._last_dispatched_text = ""
 
     def enqueue_turn(
         self,
@@ -295,8 +313,9 @@ class AudioBridge:
             ):
                 self._barge_latched = True
                 log.info(
-                    "Barge-in detected (regime=A level=%d thr=%d)",
-                    level, threshold,
+                    "Barge-in detected (regime=A level=%d thr=%d) after %.0f ms "
+                    "/ %d frames of caller speech",
+                    level, threshold, elapsed_ms, self._barge_run,
                 )
                 await self.trigger_barge_in()
         elif level < threshold:
@@ -340,8 +359,23 @@ class AudioBridge:
         TurnHandler.handle_turn), so the next reply is generated from
         everything the caller has said.
         """
+        # Diagnostic: how much agent audio was still queued at barge time (this is
+        # what the transport clear() flushes), and how long the flush took to
+        # serialize behind send_lock and reach the wire. Compare against how long
+        # the caller still hears the agent: a large buffered_ms that stops cleanly
+        # means clear() is doing its job and any residual is jitter/handset drain;
+        # a large buffered_ms that keeps playing means the flush isn't landing.
+        now = time.monotonic()
+        buffered_ms = max(0.0, self._state.speaking_until - now) * 1000
         self._state.barge_generation += 1
+        clear_started = time.monotonic()
         await self._transport_clear()
+        clear_ms = (time.monotonic() - clear_started) * 1000
+        log.info(
+            "Barge flush: ~%.0f ms of agent audio still buffered at barge; "
+            "transport clear() serialized+sent in %.0f ms",
+            buffered_ms, clear_ms,
+        )
         self._state.speaking_until = 0.0
         self._state.speaking_started_at = 0.0
         task = self._state.turn_task
@@ -352,6 +386,65 @@ class AudioBridge:
         """Flush the transport's buffered outbound audio, serialized with sends."""
         async with self._state.send_lock:
             await self._client.clear()
+
+    def _is_echo_of_dispatched(self, transcript: str) -> bool:
+        """True if `transcript` merely re-states (part of) the last dispatched turn.
+
+        Distinguishes the two things STT decode lag can surface while the
+        agent's reply is playing:
+          - a re-emission of the utterance the agent is ALREADY answering (seen
+            live from a lagging Deepgram) — stale, must be ignored; its
+            normalized text is contained in the dispatched turn's text.
+          - NEW caller speech from the composing window (e.g. "Actually, make
+            it Tuesday") — a real interruption; it says something the
+            dispatched turn didn't, so it is not contained.
+        """
+        last = _normalize_text(self._last_dispatched_text)
+        if not last:
+            return False
+        new = _normalize_text(transcript)
+        return bool(new) and new in last
+
+    async def _maybe_transcript_barge(self, event: dict, transcript: str) -> None:
+        """Barge on a NEW turn's partial arriving while the agent is audible.
+
+        STT is fed silence for the whole time the agent's audio is on the wire,
+        so a partial landing now can only be decode-lagged caller speech from
+        BEFORE the mute — i.e. the caller kept talking while the turn was
+        composing (typically a correction: "Actually, ..."), and the reply now
+        playing answers an utterance the caller has since amended. Waiting for
+        the final (as the composing prune does) lets the stale reply play out
+        in full when STT lags — the caller hears the wrong question answered,
+        then the right one (the Friday/Tuesday call). Cut it at the first
+        partial instead; the utterance's own final dispatches the redo turn.
+
+        Guards: new turn_order AND not an echo of the dispatched text (lagging
+        re-decodes of the answered utterance are stale, not speech); greeting
+        exempt; audible only — while composing, partials still don't cancel, so
+        an impatient "hello?" can't kill a slow turn before its final can be
+        merged into the redo. Requires a prior dispatched caller turn: the
+        greeting turn never sets one, so nothing transcribed from call-start
+        audio (a "hello?" at pickup, line noise) can cut the greeting — its
+        audible tail runs after greeting_active has already been cleared.
+        """
+        if not self._settings.barge_in_enabled or self._state.greeting_active:
+            return
+        if not self._last_dispatched_text:
+            return
+        if event.get("turn_order", -1) <= self._state.last_dispatched_turn:
+            return
+        audible = (
+            time.monotonic()
+            < self._state.speaking_until + self._settings.barge_in_echo_tail_seconds
+        )
+        if not audible or self._is_echo_of_dispatched(transcript):
+            return
+        log.info(
+            "New caller speech surfaced while agent audible — transcript "
+            "barge on partial: %r",
+            transcript,
+        )
+        await self._cancel_inflight_turn()
 
     async def stt_to_agent(self) -> None:
         """Consume STT events; dispatch the agent on a formatted final turn."""
@@ -387,6 +480,11 @@ class AudioBridge:
                 await self._client.send_json({"type": "partial", "text": transcript})
                 # Track when the user last spoke for end-of-turn latency measurement.
                 self._state.last_partial_at = time.monotonic()
+                # A partial from a NEW turn while the agent's reply is playing =
+                # the caller amended their request while the turn composed (STT
+                # surfaced it late) — stop the stale reply now, don't let it
+                # play out until the final lands.
+                await self._maybe_transcript_barge(event, transcript)
                 continue
 
             # end_of_turn. Dispatch on the first end-of-turn event without waiting
@@ -405,13 +503,9 @@ class AudioBridge:
             # can finalize DURING the agent's turn (seen live: a lagging
             # Deepgram emitted a duplicate of the just-answered utterance while
             # the reply was playing, and it was queued and answered a second
-            # time). Enforce the contract on the way out too: a final that
-            # lands while the agent's audio is on the wire — or, with barge-in
-            # off, while a turn is in flight at all — is stale speech the mute
-            # was meant to discard. With barge-in ON, a final during the
-            # composing window (turn live, nothing audible) is deliberate:
-            # that audio was forwarded live so the caller's words survive into
-            # the next turn — so only the audible case is dropped there.
+            # time). With barge-in OFF, enforce the contract on the way out
+            # too: any final landing while the agent holds the floor (audible
+            # OR composing) is stale speech the mute was meant to discard.
             audible = (
                 time.monotonic()
                 < self._state.speaking_until
@@ -421,14 +515,46 @@ class AudioBridge:
                 self._state.turn_task is not None
                 and not self._state.turn_task.done()
             )
-            if audible or (turn_live and not self._settings.barge_in_enabled):
-                self._state.last_partial_at = None
+            if not self._settings.barge_in_enabled:
+                if audible or turn_live:
+                    self._state.last_partial_at = None
+                    log.info(
+                        "Dropping stale final (agent holds the floor; "
+                        "audible=%s turn_live=%s): %r",
+                        audible, turn_live, transcript,
+                    )
+                    continue
+            elif audible:
+                # Barge-in ON, final while the reply is on the wire. STT was
+                # muted for this whole window, so this text is decode-lagged
+                # audio from before the mute — either a re-emission of the
+                # utterance already being answered (stale echo: drop, as
+                # before) or NEW speech from the composing window (a
+                # correction the partial-barge may have missed, e.g. when STT
+                # skips straight to a final). Dropping new speech here loses
+                # the caller's correction entirely — barge and dispatch it
+                # instead. The greeting (and its audible tail, when
+                # greeting_active is already cleared but no caller turn has
+                # been dispatched yet) keeps the blanket drop: nothing real
+                # precedes it, so a final now is call-start noise.
+                if (
+                    self._state.greeting_active
+                    or not self._last_dispatched_text
+                    or self._is_echo_of_dispatched(transcript)
+                ):
+                    self._state.last_partial_at = None
+                    log.info(
+                        "Dropping stale final (echo of dispatched turn while "
+                        "audible): %r",
+                        transcript,
+                    )
+                    continue
                 log.info(
-                    "Dropping stale final (agent holds the floor; "
-                    "audible=%s turn_live=%s): %r",
-                    audible, turn_live, transcript,
+                    "New-speech final while agent audible — transcript barge, "
+                    "dispatching %r",
+                    transcript,
                 )
-                continue
+                await self._cancel_inflight_turn()
 
             # Barge-in ON, final while a turn is still composing (LLM/tool calls
             # running, nothing audible yet): the caller kept talking, so the
@@ -439,9 +565,8 @@ class AudioBridge:
             # so the fresh turn's reply is generated from ALL the caller's
             # words, fragments included. The opening greeting is exempt, same
             # as the energy detector's composing rule.
-            if (
+            elif (
                 turn_live
-                and self._settings.barge_in_enabled
                 and not self._state.greeting_active
             ):
                 log.info(
@@ -465,5 +590,9 @@ class AudioBridge:
                 "Enqueue turn order=%s qsize=%s text=%r",
                 turn_order, self._turns.qsize(), transcript,
             )
+            # Remember what was dispatched so a lagging re-decode of this same
+            # utterance (new turn_order, same words) reads as a stale echo, not
+            # as a barge (see _is_echo_of_dispatched).
+            self._last_dispatched_text = transcript
             # Real caller turn: play a gap filler while the agent processes it.
             self.enqueue_turn(transcript, user_stopped_at, gap_filler=True)

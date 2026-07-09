@@ -126,11 +126,13 @@ class TwilioTransport:
         jitter buffer may still play for a few tens of milliseconds.
         """
         if self._stream_sid is None:
+            log.info("Twilio clear skipped: stream SID not captured yet")
             return
         await self._ws.send_text(json.dumps({
             "event": "clear",
             "streamSid": self._stream_sid,
         }))
+        log.info("Twilio clear frame sent (streamSid=%s)", self._stream_sid)
 
     async def close(self) -> None:
         try:
