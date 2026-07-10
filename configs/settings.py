@@ -76,6 +76,26 @@ class Settings:
         os.getenv("BARGE_IN_ECHO_TAIL_SECONDS", "0.7")
     )
 
+    # Pre-speak quiet gate: just before a reply's FIRST audio frame is handed
+    # to the transport, require the caller's line to have been quiet — no
+    # inbound energy above barge_in_voice_level_idle while the agent was not
+    # audible — for this long. If the caller is mid-sentence the reply is held
+    # (and if their speech reaches a final, the composing prune discards the
+    # held reply entirely and regenerates it from the full history), so the
+    # agent never opens its mouth over a talking caller. In the normal
+    # turn-taking case this adds ZERO latency: STT end-of-turn itself needs
+    # about a second of silence before the final that started the turn, so the
+    # quiet run has long since elapsed by the time the reply is ready.
+    # 0 disables the gate.
+    pre_speak_quiet_seconds: float = float(
+        os.getenv("PRE_SPEAK_QUIET_SECONDS", "1.0")
+    )
+    # Safety cap on that hold, so steady line noise above the idle threshold
+    # (or a caller who never pauses) can't silence the agent indefinitely.
+    pre_speak_max_hold_seconds: float = float(
+        os.getenv("PRE_SPEAK_MAX_HOLD_SECONDS", "4.0")
+    )
+
     # Play a short pre-recorded "one moment…" clip while the agent processes a
     # caller's turn, to mask LLM/TTS latency. Enabled by default: it gives the
     # caller immediate audible feedback so they don't talk into the silent

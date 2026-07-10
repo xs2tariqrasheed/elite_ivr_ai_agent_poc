@@ -258,6 +258,10 @@ class AudioBridge:
             # Truly idle: nothing to interrupt; listen for the next utterance.
             self._reset_barge_run()
             self._barge_latched = False
+            if level >= self._settings.barge_in_voice_level_idle:
+                # Genuine caller audio (nothing playing, so no echo): feed the
+                # pre-speak quiet gate (see PipelineState.last_voice_at).
+                self._state.last_voice_at = now
             if level >= _VOICE_LEVEL and now - self._barge_log_at >= 0.5:
                 self._barge_log_at = now
                 log.info("barge-watch idle level=%d (caller speaking)", level)
@@ -271,6 +275,11 @@ class AudioBridge:
             # so the caller's words survive into the next turn. Barge-in resumes
             # the moment the agent is audible again (Regime A).
             self._reset_barge_run()
+            if level >= self._settings.barge_in_voice_level_idle:
+                # No echo while composing either: this is the caller talking.
+                # Keeping last_voice_at fresh holds the composed reply's first
+                # frame (pre-speak quiet gate) until they finish.
+                self._state.last_voice_at = now
             if level >= _VOICE_LEVEL and now - self._barge_log_at >= 0.5:
                 self._barge_log_at = now
                 log.info("barge-watch composing level=%d (no detect)", level)

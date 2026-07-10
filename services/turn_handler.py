@@ -111,6 +111,56 @@ class TurnHandler:
                 return
             await self._client.send_bytes(chunk)
 
+    async def _hold_for_quiet_line(self) -> None:
+        """Hold this turn's audio until the caller's line has been quiet briefly.
+
+        Runs just before the turn's first outbound frame (gap filler or reply).
+        If the caller is speaking right now — last_voice_at is fresher than
+        pre_speak_quiet_seconds — starting to talk would speak over them; wait
+        for a quiet run instead. While held, nothing is audible, so the turn is
+        still "composing": if the caller's speech reaches a final, the
+        composing prune (AudioBridge.stt_to_agent) cancels this task and the
+        held audio is NEVER sent — the reply is regenerated from the caller's
+        full history, new words included. That cancel lands here as a
+        CancelledError out of the sleep and propagates to handle_turn's
+        barge handling.
+
+        In normal turn-taking this returns immediately with no added latency:
+        the final that started this turn already required ~a second of caller
+        silence, so the quiet run has elapsed before the LLM even responds.
+        pre_speak_max_hold_seconds caps the wait so steady line noise above
+        the idle threshold can't silence the agent forever.
+        """
+        quiet_need = self._settings.pre_speak_quiet_seconds
+        if quiet_need <= 0 or not self._settings.barge_in_enabled:
+            return
+        deadline = time.monotonic() + self._settings.pre_speak_max_hold_seconds
+        held_since: float | None = None
+        while True:
+            now = time.monotonic()
+            quiet_for = now - self._state.last_voice_at
+            if quiet_for >= quiet_need:
+                break
+            if now >= deadline:
+                log.info(
+                    "Pre-speak hold capped after %.1fs (line still audible); "
+                    "speaking anyway",
+                    self._settings.pre_speak_max_hold_seconds,
+                )
+                return
+            if held_since is None:
+                held_since = now
+                log.info(
+                    "Holding reply: caller audible %.2fs ago (need %.2fs quiet)",
+                    quiet_for, quiet_need,
+                )
+            await asyncio.sleep(0.05)
+        if held_since is not None:
+            log.info(
+                "Pre-speak hold released after %.2fs of caller audio; speaking",
+                time.monotonic() - held_since,
+            )
+
     async def _play_gap_filler(self, bps: int) -> None:
         """Play a random pre-decoded gap filler to mask agent processing latency.
 
@@ -164,6 +214,10 @@ class TurnHandler:
         # opening greeting (gap_filler=False) since nothing is being processed,
         # and globally disable-able via Settings.gap_filler_enabled.
         if gap_filler and self._settings.gap_filler_enabled:
+            # Don't ack over a caller who is still talking (fragmented
+            # utterances: the first fragment's final starts this turn while
+            # the caller is mid-sentence).
+            await self._hold_for_quiet_line()
             await self._play_gap_filler(bps)
         t_start = time.monotonic()
         t_first_token: float | None = None
@@ -204,6 +258,14 @@ class TurnHandler:
                     break
                 if first:
                     first = False
+                    if gap_filler:
+                        # First frame of the actual reply: same quiet gate as
+                        # the filler — the caller may have started talking
+                        # during the composing gap. The greeting
+                        # (gap_filler=False) is exempt, as everywhere else.
+                        await self._hold_for_quiet_line()
+                        if self._state.barge_generation != self._gen:
+                            break  # superseded while held
                     now = time.monotonic()
                     await self._client.send_json({
                         "type": "timings",

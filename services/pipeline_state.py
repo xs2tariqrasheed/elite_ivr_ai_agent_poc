@@ -19,6 +19,15 @@ class PipelineState:
     # 0.0 on barge-in so STT un-mutes immediately for the caller's new utterance.
     speaking_until: float = 0.0
 
+    # monotonic() time inbound caller energy last exceeded the idle voice
+    # threshold while the agent was NOT audible (composing / between turns).
+    # Feeds the pre-speak quiet gate (TurnHandler._hold_for_quiet_line): a
+    # reply's first audio frame is held while this is fresh, so the agent never
+    # starts talking over a caller who is mid-sentence. Regime-A (audible)
+    # frames never update it — the agent's own echo would keep it permanently
+    # fresh and hold every reply hostage.
+    last_voice_at: float = 0.0
+
     # ----- Barge-in coordination ---------------------------------------------
     # monotonic() time the current contiguous playback began, for the echo-onset
     # guard (set by TurnHandler when speaking_until first crosses now).

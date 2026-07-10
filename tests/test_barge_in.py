@@ -7,6 +7,7 @@ generation guard, and the prune/redo coordination.
 """
 import asyncio
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,6 +35,10 @@ def make_settings(**over):
         barge_in_min_ms=0,
         barge_in_echo_guard_seconds=0.0,
         barge_in_echo_tail_seconds=0.7,
+        # Pre-speak quiet gate off by default so turn tests run without holds;
+        # the gate's own tests override these.
+        pre_speak_quiet_seconds=0.0,
+        pre_speak_max_hold_seconds=0.0,
         gap_filler_enabled=False,
         elevenlabs_api_key="test-key",
         elevenlabs_voice_id="test-voice",
@@ -661,6 +666,119 @@ async def test_barge_rollback_keeps_caller_utterance():
         th_mod.stream_tts_input = orig
 
 
+async def test_pre_speak_gate_quiet_line_no_delay():
+    """The common case: the caller has been quiet since their utterance (the
+    final that started this turn needed ~1s of silence). The gate must pass
+    immediately — zero added latency."""
+    state = PipelineState()
+    state.last_voice_at = time.monotonic() - 10.0  # long quiet
+    th = TurnHandler(
+        FakeTransport(), object(),
+        make_settings(pre_speak_quiet_seconds=1.0, pre_speak_max_hold_seconds=4.0),
+        state,
+    )
+    t0 = time.monotonic()
+    await th._hold_for_quiet_line()
+    assert time.monotonic() - t0 < 0.05, "quiet line must not delay the reply"
+
+
+async def test_pre_speak_gate_holds_until_quiet():
+    """Caller audible right now: the gate holds until the quiet run elapses."""
+    state = PipelineState()
+    state.last_voice_at = time.monotonic()  # caller just audible
+    th = TurnHandler(
+        FakeTransport(), object(),
+        make_settings(pre_speak_quiet_seconds=0.2, pre_speak_max_hold_seconds=2.0),
+        state,
+    )
+    t0 = time.monotonic()
+    await th._hold_for_quiet_line()
+    elapsed = time.monotonic() - t0
+    assert elapsed >= 0.15, f"gate must hold for the quiet run, held {elapsed:.3f}s"
+    assert elapsed < 1.0, f"gate must release once quiet, held {elapsed:.3f}s"
+
+
+async def test_pre_speak_gate_capped_under_steady_noise():
+    """Steady above-threshold energy (noise, or a caller who never pauses)
+    must not silence the agent forever: the hold is capped."""
+    state = PipelineState()
+    th = TurnHandler(
+        FakeTransport(), object(),
+        make_settings(pre_speak_quiet_seconds=0.5, pre_speak_max_hold_seconds=0.25),
+        state,
+    )
+
+    async def noise():
+        while True:
+            state.last_voice_at = time.monotonic()
+            await asyncio.sleep(0.02)
+
+    state.last_voice_at = time.monotonic()  # audible before the gate first checks
+    n = asyncio.create_task(noise())
+    try:
+        t0 = time.monotonic()
+        await th._hold_for_quiet_line()
+        elapsed = time.monotonic() - t0
+        assert 0.2 <= elapsed < 1.0, f"hold must cap at max_hold, held {elapsed:.3f}s"
+    finally:
+        n.cancel()
+
+
+async def test_held_reply_pruned_when_caller_final_lands():
+    """The user-visible contract: reply composed while the caller is talking →
+    it is HELD (never reaches the transport), and when the caller's final
+    prunes the turn, the held audio is discarded and the caller's utterance is
+    kept for the redo turn."""
+    import services.turn_handler as th_mod
+
+    calls = {}
+
+    class FakeAgent:
+        async def checkpoint(self):
+            return {"pre"}
+
+        async def stream_response(self, text):
+            yield "The reply that must never play."
+
+        async def rollback_barge(self, pre_ids, *, keep_user_message=False):
+            calls["keep_user_message"] = keep_user_message
+
+        def snapshot(self):
+            return None
+
+    async def fake_tts(gen, *a, **k):
+        async for _sentence in gen:
+            yield b"\x00" * 320
+
+    orig = th_mod.stream_tts_input
+    th_mod.stream_tts_input = fake_tts
+    try:
+        state = PipelineState()
+        transport = FakeTransport()
+        th = TurnHandler(
+            transport, FakeAgent(),
+            make_settings(
+                pre_speak_quiet_seconds=5.0, pre_speak_max_hold_seconds=30.0
+            ),
+            state,
+        )
+        state.last_voice_at = time.monotonic()  # caller audible right now
+        task = asyncio.create_task(th.handle_turn("first ask", gap_filler=True))
+        await asyncio.sleep(0.2)  # reply is ready and being held
+        assert transport.sent_bytes == [], "held reply must not reach the transport"
+        task.cancel()  # the composing prune when the caller's final lands
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert transport.sent_bytes == [], "pruned reply must never be sent"
+        assert calls.get("keep_user_message") is True, (
+            "redo must keep the caller's utterance"
+        )
+    finally:
+        th_mod.stream_tts_input = orig
+
+
 class FakeDeepgramWS:
     """Async-iterable stand-in for the Deepgram websocket (yields raw JSON)."""
 
@@ -889,6 +1007,10 @@ async def main():
         test_worker_merges_queued_fragments,
         test_barge_keeps_queued_turns,
         test_barge_rollback_keeps_caller_utterance,
+        test_pre_speak_gate_quiet_line_no_delay,
+        test_pre_speak_gate_holds_until_quiet,
+        test_pre_speak_gate_capped_under_steady_noise,
+        test_held_reply_pruned_when_caller_final_lands,
         test_deepgram_replayed_segment_dropped,
         test_deepgram_reconnects_after_drop,
         test_deepgram_flushes_pending_text_on_drop,
