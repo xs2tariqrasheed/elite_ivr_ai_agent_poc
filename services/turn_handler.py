@@ -24,7 +24,7 @@ _BYTES_PER_SECOND = {
 # Spoken when the agent produces no reply (e.g. the LLM request stalled). TTS
 # runs through ElevenLabs, which is independent of OpenAI, so the caller hears
 # this and can retry instead of being met with dead silence.
-_FALLBACK_REPLY = "Sorry, I didn't catch that. Could you say it again?"
+_FALLBACK_REPLY = "I'm sorry.  One of the components didn't respond in time.  Would you like me to try that again?"
 
 
 def _pop_sentences(buf: str) -> tuple[list[str], str]:
