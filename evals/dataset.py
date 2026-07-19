@@ -257,12 +257,12 @@ def print_catalog() -> None:
             print(f"    note: {exp.notes}")
 
 
-def _actual_terminal_action(snapshot: dict) -> str:
+def actual_terminal_action(snapshot: dict) -> str:
     """Read the terminal action back off a finished snapshot.
 
-    This is a PREVIEW of scoring logic — Phase 1 will turn this (and the slot
-    checks) into proper, reusable scorer functions. It lives here only so the
-    `--run` path can show a provisional pass/fail while we look at transcripts.
+    The single source of truth for "how did the call end", derived from the
+    session flags. Phase 1's scorers import this so the dataset and the scorers
+    can never disagree about what a snapshot means.
     """
     if snapshot.get("transferred"):
         return TRANSFER
@@ -287,7 +287,7 @@ async def _run_all() -> None:
             who = "START " if caller == "<call_started>" else "CALLER"
             print(f"  [{who}] {caller}")
             print(f"  [ANN ] {reply}")
-        got = _actual_terminal_action(result.snapshot or {})
+        got = actual_terminal_action(result.snapshot or {})
         ok = "PASS" if got == case.expected.terminal_action else "FAIL"
         print(f"  -> terminal action: expected "
               f"{case.expected.terminal_action}, got {got}   [{ok}]")
