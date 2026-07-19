@@ -45,3 +45,6 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# eval results
+evals/results/
