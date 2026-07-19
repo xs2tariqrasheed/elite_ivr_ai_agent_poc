@@ -71,13 +71,26 @@ class Expected:
 
 @dataclass
 class EvalCase:
-    """One test scenario: an id, a caller script, and the expected outcome."""
+    """One test scenario: an id, a caller script, and the expected outcome.
+
+    A case can be driven two ways against the SAME `expected` contract:
+      * SCRIPTED — replay `caller_turns` verbatim (Phases 0-1). Simple, but a
+        fixed script desyncs if the agent asks things in a different order.
+      * SIMULATED — let an LLM play the caller from `caller_goal` + `caller_facts`
+        (Phase 4). The caller reacts to what the agent actually says, so multi-
+        turn cases stop failing for the wrong reason.
+    """
 
     id: str
     description: str
     caller_turns: List[str]
     expected: Expected
     account: Optional[dict] = None  # None -> harness SAMPLE_ACCOUNT
+    # Persona for the Phase 4 simulated caller. `caller_goal` is the caller's
+    # objective; `caller_facts` are the concrete details it may supply when
+    # asked. Kept as plain strings so dataset.py needs no extra imports.
+    caller_goal: str = ""
+    caller_facts: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +122,11 @@ DATASET: List[EvalCase] = [
             },
             notes="The baseline. If this ever fails, something is badly wrong.",
         ),
+        caller_goal="Book a car reservation in one go, then confirm and finish.",
+        caller_facts="Give all of this in your very first sentence: pickup next "
+        "Thursday at 1:30 in the afternoon, pickup at 10 Main Street in Brooklyn, "
+        "drop-off at JFK Airport. The callback number on file is fine. Confirm "
+        "when the agent reads it back.",
     ),
     EvalCase(
         id="drip_fed_details",
@@ -132,6 +150,12 @@ DATASET: List[EvalCase] = [
             notes="Fragile under scripting: the agent chooses what to ask next, "
             "so turn order may drift. A good candidate for the Phase 4 caller.",
         ),
+        caller_goal="Book a ride, but reveal only ONE detail at a time so the "
+        "agent has to ask for each piece.",
+        caller_facts="Pickup is next Monday at 9 in the morning; pickup address "
+        "is 200 Park Avenue in Manhattan; drop-off is LaGuardia Airport; the "
+        "callback number on file is fine. Open by just saying you'd like to book "
+        "a ride, then give each detail only when asked. Confirm when read back.",
     ),
     EvalCase(
         id="correction_at_readback",
@@ -153,6 +177,12 @@ DATASET: List[EvalCase] = [
             notes="Tests that a correction overwrites the slot AND re-locks "
             "finalize until the caller confirms the corrected read-back.",
         ),
+        caller_goal="Book a car, but change the drop-off during the read-back.",
+        caller_facts="Pickup this Saturday at 6 PM, pickup at 5 Elm Street. At "
+        "first say the drop-off is the Plaza Hotel. When the agent reads the "
+        "reservation back, change the drop-off to Grand Central Station instead. "
+        "The callback number on file is fine. Confirm once the corrected "
+        "read-back is right.",
     ),
     EvalCase(
         id="non_reservation_transfers",
@@ -166,6 +196,11 @@ DATASET: List[EvalCase] = [
             slots={},
             notes="Intent routing. No slots should be filled.",
         ),
+        caller_goal="You are NOT booking a car — you have a billing question "
+        "about a charge on your last invoice.",
+        caller_facts="You do not want a reservation. State your billing "
+        "question. If the agent offers to transfer you to the support desk, "
+        "that's fine — let the call end.",
     ),
     EvalCase(
         id="address_swap_trap",
@@ -187,6 +222,11 @@ DATASET: List[EvalCase] = [
             notes="The trap: JFK is mentioned first but is the DROP-OFF; 88 "
             "Willow is the PICKUP. A swap makes pickup_address contain 'jfk'.",
         ),
+        caller_goal="Book a car, mentioning your destination before your pickup.",
+        caller_facts="Say it like this: you're flying out of JFK on Friday at "
+        "noon, so you need a pickup from 88 Willow Road in Queens. (Destination "
+        "is JFK; pickup is 88 Willow Road.) Callback number on file is fine. "
+        "Confirm when read back.",
     ),
     EvalCase(
         id="callback_number_correction",
@@ -206,6 +246,11 @@ DATASET: List[EvalCase] = [
             notes="Tests set_caller_phone. Substrings '917' + '0199' tolerate "
             "any formatting the agent stores the number in.",
         ),
+        caller_goal="Book a car and correct your callback number.",
+        caller_facts="Pickup Tuesday at 3 PM from 12 Oak Lane to Newark Airport. "
+        "When the agent mentions or confirms the callback number, tell them to "
+        "call you at 917-555-0199 instead. Confirm when the corrected read-back "
+        "is right.",
     ),
     EvalCase(
         id="ambiguous_date_clarified",
@@ -229,6 +274,11 @@ DATASET: List[EvalCase] = [
             notes="Fragile under scripting (multi-clarification). Its real value "
             "arrives with the Phase 4 caller.",
         ),
+        caller_goal="Book a car, but be vague about the date at first.",
+        caller_facts="You want a pickup from 3 River Road going to JFK Airport. "
+        "At first be vague about timing ('sometime next week'). Only when the "
+        "agent asks you to be specific, say Wednesday at 10 in the morning. "
+        "Callback number on file is fine. Confirm when read back.",
     ),
 ]
 
